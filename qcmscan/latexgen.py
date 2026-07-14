@@ -313,8 +313,18 @@ def generer_sujet(con, sujet_id, progress=None):
 
     say("Corrigé maître…")
     generer_corrige(con, sujet_id, workdir, pdflatex)
+    _nettoyer_auxiliaires(workdir)
     say("Terminé.")
     return workdir / "main.pdf", workdir / "corrige.pdf"
+
+
+def _nettoyer_auxiliaires(workdir: Path):
+    """Après compilation, ne garde que l'essentiel dans le dossier du
+    sujet : les PDF et les sources .tex. Le .aux a déjà été lu (positions
+    des cases) et les QR sont regénérés à chaque compilation."""
+    for f in ("main.aux", "main.log", "corrige.aux", "corrige.log"):
+        (workdir / f).unlink(missing_ok=True)
+    shutil.rmtree(workdir / "qr", ignore_errors=True)
 
 
 def generer_corrige(con, sujet_id, workdir: Path, pdflatex):
