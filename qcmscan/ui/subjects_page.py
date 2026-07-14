@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox,
 from .. import db
 from ..latexgen import generer_sujet
 from ..paths import subject_dir
+from . import theme
 from .widgets import (Worker, bouton, confirmer, entete, erreur, info,
                       ligne_boutons, ouvrir_fichier)
 
@@ -192,7 +193,8 @@ class SubjectsPage(QWidget):
     def _style_points(self, it, actif):
         """Grise la colonne Points quand le barème uniforme s'applique :
         les coefficients saisis sont conservés mais ignorés."""
-        it.setForeground(QBrush(QColor("#23272C" if actif else "#B5B1A9")))
+        couleur = theme.palette["texte" if actif else "desactive"]
+        it.setForeground(QBrush(QColor(couleur)))
         it.setToolTip("" if actif else
                       "Coefficient conservé mais ignoré : le barème "
                       "uniforme « Points par question » s'applique.")

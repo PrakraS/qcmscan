@@ -50,8 +50,7 @@ class QuestionsPage(QWidget):
         racine = QVBoxLayout(self)
         racine.addWidget(entete(
             "Banque de questions",
-            "Énoncés et réponses en LaTeX. Une seule bonne réponse "
-            "par question. Pour afficher « & », écrivez « \\& »."))
+            "Les énoncés et les réponses doivent être en LaTeX."))
 
         barre = QHBoxLayout()
         self.filtre_chap = QComboBox()

@@ -6,16 +6,17 @@ from PySide6.QtWidgets import QApplication
 
 from qcmscan import db
 from qcmscan.paths import db_path
+from qcmscan.ui import theme
 from qcmscan.ui.mainwindow import MainWindow
-from qcmscan.ui.theme import QSS
 
 
 def main():
     app = QApplication(sys.argv)
     app.setApplicationName("QCMScan")
     app.setStyle("Fusion")
-    app.setStyleSheet(QSS)
     con = db.connect(db_path())
+    sombre = db.get_setting(con, "theme", "clair") == "sombre"
+    app.setStyleSheet(theme.qss(sombre))
     fenetre = MainWindow(con)
     fenetre.show()
     sys.exit(app.exec())

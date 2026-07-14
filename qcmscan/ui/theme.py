@@ -1,68 +1,136 @@
-"""Thème de l'application. Sobre, papier et encre, un seul accent."""
+"""Thèmes de l'application. Sobre, papier et encre, un seul accent.
 
-ENCRE = "#23272C"
-PAPIER = "#F5F4F0"
-SURFACE = "#FFFFFF"
-BORD = "#DDDAD2"
-TEXTE = "#23272C"
-TEXTE_2 = "#6E6A62"
-ACCENT = "#2E5A7D"        # encre bleue
-ACCENT_CLAIR = "#EAF0F5"
-VERT = "#1F7A45"
-ROUGE = "#B03434"
-ORANGE = "#B4700A"
+Deux palettes (claire et sombre) alimentent la même feuille de style.
+`palette` reflète toujours le thème actif, pour les couleurs posées en
+code (hors feuille de style).
+"""
 
-QSS = f"""
+CLAIR = {
+    "papier": "#F5F4F0",         # fond général
+    "surface": "#FFFFFF",        # champs, listes, cartes
+    "bord": "#DDDAD2",
+    "texte": "#23272C",
+    "texte2": "#6E6A62",
+    "accent": "#2E5A7D",         # encre bleue
+    "accent_hover": "#386C93",
+    "accent_clair": "#EAF0F5",
+    "vert": "#1F7A45",
+    "rouge": "#B03434",
+    "rouge_fond": "#F9ECEC",
+    "orange": "#B4700A",
+    "nav_fond": "#23272C",
+    "nav_texte": "#C8C4BC",
+    "nav_texte_sel": "#FFFFFF",
+    "nav_sel_fond": "#2E333A",
+    "nav_hover": "#292E34",
+    "nav_marque": "#7FA8C9",
+    "desactive": "#B5B1A9",
+    "desactive_fond": "#F0EFEA",
+    "prim_off": "#9FB3C2",
+    "prim_off_texte": "#EDEDED",
+    "alterne": "#FAF9F6",
+    "entete_table": "#EFEEE9",
+    "grille": "#EDEBE5",
+    "scroll": "#C9C5BD",
+    "scroll_hover": "#B0ACA4",
+}
+
+SOMBRE = {
+    "papier": "#1E2126",
+    "surface": "#282C32",
+    "bord": "#3C4148",
+    "texte": "#E6E4DF",
+    "texte2": "#9DA2A8",
+    "accent": "#6E9CC0",
+    "accent_hover": "#7FA8C9",
+    "accent_clair": "#2C3A46",
+    "vert": "#54B37E",
+    "rouge": "#D07070",
+    "rouge_fond": "#3A2A2A",
+    "orange": "#D69A45",
+    "nav_fond": "#15181C",
+    "nav_texte": "#A9ADB3",
+    "nav_texte_sel": "#FFFFFF",
+    "nav_sel_fond": "#252A31",
+    "nav_hover": "#1D2126",
+    "nav_marque": "#7FA8C9",
+    "desactive": "#5C6167",
+    "desactive_fond": "#23262B",
+    "prim_off": "#3D4C59",
+    "prim_off_texte": "#8B949C",
+    "alterne": "#22262B",
+    "entete_table": "#2B3036",
+    "grille": "#33383E",
+    "scroll": "#454A51",
+    "scroll_hover": "#565C64",
+}
+
+# Palette active, mise à jour par qss(). Copie pour que les références
+# gardées par les pages restent valables après un changement de thème.
+palette = dict(CLAIR)
+
+
+def qss(sombre: bool = False) -> str:
+    """Feuille de style de l'application ; met à jour `palette`."""
+    palette.clear()
+    palette.update(SOMBRE if sombre else CLAIR)
+    p = palette
+    return f"""
 * {{
     font-family: "Segoe UI", "Noto Sans", sans-serif;
     font-size: 10pt;
-    color: {TEXTE};
+    color: {p['texte']};
 }}
-QMainWindow, QDialog {{ background: {PAPIER}; }}
+QMainWindow, QDialog {{ background: {p['papier']}; }}
 
 /* ------------------------------------------------ navigation latérale */
 #nav {{
-    background: {ENCRE};
+    background: {p['nav_fond']};
     border: none;
     outline: none;
     padding-top: 4px;
 }}
 #nav::item {{
-    color: #C8C4BC;
+    color: {p['nav_texte']};
     padding: 10px 18px;
     border-left: 3px solid transparent;
 }}
 #nav::item:selected {{
-    color: #FFFFFF;
-    background: #2E333A;
-    border-left: 3px solid #7FA8C9;
+    color: {p['nav_texte_sel']};
+    background: {p['nav_sel_fond']};
+    border-left: 3px solid {p['nav_marque']};
 }}
-#nav::item:hover:!selected {{ background: #292E34; }}
+#nav::item:hover:!selected {{ background: {p['nav_hover']}; }}
 #logo {{
-    color: #FFFFFF;
-    background: {ENCRE};
+    color: {p['nav_texte_sel']};
+    background: {p['nav_fond']};
     font-size: 13pt;
     font-weight: 600;
     letter-spacing: 2px;
-    padding: 18px 18px 12px 18px;
+    padding: 18px 18px 14px 18px;
 }}
-#logosub {{
-    color: #8A867E;
-    background: {ENCRE};
-    font-size: 8pt;
-    padding: 0 18px 14px 18px;
+#themeToggle {{
+    color: {p['nav_texte']};
+    background: {p['nav_fond']};
+    border: none;
+    padding: 12px 18px;
+    font-size: 9pt;
+}}
+#themeToggle:hover {{
+    color: {p['nav_texte_sel']};
+    background: {p['nav_hover']};
 }}
 
 /* ------------------------------------------------------------- titres */
 #titrePage {{
     font-size: 15pt;
     font-weight: 600;
-    color: {TEXTE};
+    color: {p['texte']};
 }}
-#sousTitre {{ color: {TEXTE_2}; }}
+#sousTitre {{ color: {p['texte2']}; }}
 QLabel[role="section"] {{
     font-weight: 600;
-    color: {TEXTE_2};
+    color: {p['texte2']};
     letter-spacing: 1px;
     font-size: 8.5pt;
 }}
@@ -70,112 +138,127 @@ QLabel[role="section"] {{
 /* ------------------------------------------------------------ champs */
 QLineEdit, QPlainTextEdit, QComboBox, QDoubleSpinBox, QSpinBox,
 QDateEdit {{
-    background: {SURFACE};
-    border: 1px solid {BORD};
+    background: {p['surface']};
+    border: 1px solid {p['bord']};
     border-radius: 3px;
     padding: 5px 7px;
-    selection-background-color: {ACCENT};
+    selection-background-color: {p['accent']};
     selection-color: white;
 }}
 QLineEdit:focus, QPlainTextEdit:focus, QComboBox:focus,
-QDoubleSpinBox:focus {{ border: 1px solid {ACCENT}; }}
+QDoubleSpinBox:focus {{ border: 1px solid {p['accent']}; }}
 QComboBox::drop-down {{ border: none; width: 22px; }}
 QComboBox QAbstractItemView {{
-    background: {SURFACE};
-    border: 1px solid {BORD};
-    selection-background-color: {ACCENT_CLAIR};
-    selection-color: {TEXTE};
+    background: {p['surface']};
+    border: 1px solid {p['bord']};
+    selection-background-color: {p['accent_clair']};
+    selection-color: {p['texte']};
 }}
 QPlainTextEdit {{ font-family: "Consolas", "DejaVu Sans Mono", monospace; }}
 
 /* ------------------------------------------------------------ boutons */
 QPushButton {{
-    background: {SURFACE};
-    border: 1px solid {BORD};
+    background: {p['surface']};
+    border: 1px solid {p['bord']};
     border-radius: 3px;
     padding: 6px 14px;
 }}
-QPushButton:hover {{ border-color: {ACCENT}; }}
-QPushButton:pressed {{ background: {ACCENT_CLAIR}; }}
-QPushButton:disabled {{ color: #B5B1A9; background: #F0EFEA; }}
+QPushButton:hover {{ border-color: {p['accent']}; }}
+QPushButton:pressed {{ background: {p['accent_clair']}; }}
+QPushButton:disabled {{
+    color: {p['desactive']}; background: {p['desactive_fond']};
+}}
 QPushButton[type="primaire"] {{
-    background: {ACCENT};
-    border: 1px solid {ACCENT};
+    background: {p['accent']};
+    border: 1px solid {p['accent']};
     color: white;
     font-weight: 600;
 }}
-QPushButton[type="primaire"]:hover {{ background: #386C93; }}
+QPushButton[type="primaire"]:hover {{ background: {p['accent_hover']}; }}
 QPushButton[type="primaire"]:disabled {{
-    background: #9FB3C2; border-color: #9FB3C2; color: #EDEDED;
+    background: {p['prim_off']};
+    border-color: {p['prim_off']};
+    color: {p['prim_off_texte']};
 }}
-QPushButton[type="danger"] {{ color: {ROUGE}; }}
+QPushButton[type="danger"] {{ color: {p['rouge']}; }}
 QToolButton {{
     border: 1px solid transparent;
     border-radius: 3px;
     padding: 3px;
 }}
-QToolButton:hover {{ border-color: {BORD}; background: {SURFACE}; }}
+QToolButton:hover {{ border-color: {p['bord']}; background: {p['surface']}; }}
 QToolButton[role="suppr"] {{
-    color: {ROUGE};
+    color: {p['rouge']};
     font-weight: 600;
     padding: 3px 8px;
 }}
 QToolButton[role="suppr"]:hover {{
-    border-color: {ROUGE};
-    background: #F9ECEC;
+    border-color: {p['rouge']};
+    background: {p['rouge_fond']};
 }}
 
 /* ------------------------------------------------------ listes/tables */
 QListWidget, QTableWidget, QTableView, QTreeWidget {{
-    background: {SURFACE};
-    border: 1px solid {BORD};
+    background: {p['surface']};
+    border: 1px solid {p['bord']};
     border-radius: 3px;
     outline: none;
-    alternate-background-color: #FAF9F6;
+    alternate-background-color: {p['alterne']};
 }}
 QListWidget::item {{ padding: 6px 8px; }}
 QListWidget::item:selected, QTableWidget::item:selected {{
-    background: {ACCENT_CLAIR};
-    color: {TEXTE};
+    background: {p['accent_clair']};
+    color: {p['texte']};
+}}
+QHeaderView {{ background: {p['surface']}; border: none; }}
+QTableCornerButton::section {{
+    background: {p['entete_table']};
+    border: none;
 }}
 QHeaderView::section {{
-    background: #EFEEE9;
+    background: {p['entete_table']};
     border: none;
-    border-bottom: 1px solid {BORD};
-    border-right: 1px solid {BORD};
+    border-bottom: 1px solid {p['bord']};
+    border-right: 1px solid {p['bord']};
     padding: 5px 8px;
     font-weight: 600;
-    color: {TEXTE_2};
+    color: {p['texte2']};
 }}
-QTableWidget {{ gridline-color: #EDEBE5; }}
+QTableWidget {{ gridline-color: {p['grille']}; }}
 
 /* ------------------------------------------------------------- divers */
-QSplitter::handle {{ background: {PAPIER}; width: 8px; }}
+QScrollArea {{
+    background: {p['surface']};
+    border: 1px solid {p['bord']};
+    border-radius: 3px;
+}}
+QScrollArea > QWidget > QWidget {{ background: transparent; }}
+QSplitter::handle {{ background: {p['papier']}; width: 8px; }}
 QRadioButton, QCheckBox {{ spacing: 6px; }}
 QProgressBar {{
-    background: {SURFACE};
-    border: 1px solid {BORD};
+    background: {p['surface']};
+    border: 1px solid {p['bord']};
     border-radius: 3px;
     text-align: center;
     height: 16px;
 }}
-QProgressBar::chunk {{ background: {ACCENT}; }}
+QProgressBar::chunk {{ background: {p['accent']}; }}
 QScrollBar:vertical {{
     background: transparent; width: 10px; margin: 0;
 }}
 QScrollBar::handle:vertical {{
-    background: #C9C5BD; border-radius: 5px; min-height: 30px;
+    background: {p['scroll']}; border-radius: 5px; min-height: 30px;
 }}
-QScrollBar::handle:vertical:hover {{ background: #B0ACA4; }}
+QScrollBar::handle:vertical:hover {{ background: {p['scroll_hover']}; }}
 QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; }}
 QScrollBar:horizontal {{ background: transparent; height: 10px; }}
 QScrollBar::handle:horizontal {{
-    background: #C9C5BD; border-radius: 5px; min-width: 30px;
+    background: {p['scroll']}; border-radius: 5px; min-width: 30px;
 }}
-QStatusBar {{ background: {PAPIER}; color: {TEXTE_2}; }}
+QStatusBar {{ background: {p['papier']}; color: {p['texte2']}; }}
 QFrame[role="carte"] {{
-    background: {SURFACE};
-    border: 1px solid {BORD};
+    background: {p['surface']};
+    border: 1px solid {p['bord']};
     border-radius: 3px;
 }}
 """
