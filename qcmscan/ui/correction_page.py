@@ -65,14 +65,15 @@ class HistogrammeNotes(QWidget):
 
 
 class DialogRevision(QDialog):
-    """Passe en revue les cases douteuses, une par une."""
+    """Passe en revue les cases à vérifier : douteuses (marquage léger)
+    et noircies-mais-entourées (réponse annulée par l'élève)."""
 
     def __init__(self, con, sujet_id, parent=None):
         super().__init__(parent)
         self.con = con
         self.sujet_id = sujet_id
-        self.setWindowTitle("Révision des cases douteuses")
-        self.resize(460, 420)
+        self.setWindowTitle("Révision des cases signalées")
+        self.resize(460, 440)
 
         lay = QVBoxLayout(self)
         self.contexte = QLabel("")
@@ -88,7 +89,8 @@ class DialogRevision(QDialog):
 
         b_cochee = bouton("Cochée  (C)", "primaire",
                           lambda: self.trancher("cochee"))
-        b_vide = bouton("Vide  (V)", None, lambda: self.trancher("vide"))
+        b_vide = bouton("Vide / annulée  (V)", None,
+                        lambda: self.trancher("vide"))
         b_stop = bouton("Terminer plus tard", None, self.accept)
         lay.addWidget(ligne_boutons(b_cochee, b_vide, b_stop))
         b_cochee.setShortcut("C")
@@ -104,17 +106,24 @@ class DialogRevision(QDialog):
         self.case = rows[0]
         reste = len(rows)
         lettre = chr(65 + self.case["r_ordre"])
+        if self.case["etat"] == "cochee":
+            nature = ("Case noircie mais <b>entourée</b> : l'élève semble "
+                      "l'avoir annulée. Comptée seulement si vous "
+                      "choisissez « Cochée ».")
+        else:
+            nature = "Marquage léger ou ambigu."
         self.contexte.setText(
             f"<b>{self.case['nom']} {self.case['prenom']}</b> "
             f"(copie {self.case['numero']}) — "
             f"question {self.case['q_ordre'] + 1}, réponse {lettre}."
-            f"<br>{reste} case(s) à trancher.")
+            f"<br>{nature}<br>{reste} case(s) à vérifier.")
         pm = QPixmap()
         if self.case["crop"]:
             pm.loadFromData(self.case["crop"])
         self.image.setPixmap(pm)
         self.ratio.setText(
-            f"Taux de noircissement mesuré : {self.case['ratio']:.0%}")
+            f"Noircissement intérieur : {self.case['ratio']:.0%} — "
+            f"encre autour : {self.case['ratio_ext']:.0%}")
 
     def trancher(self, decision):
         grading.trancher(self.con, self.case["case_id"], decision)
@@ -142,7 +151,7 @@ class CorrectionPage(QWidget):
         lig.addStretch()
         self.mode_auto = QRadioButton("Correction automatique")
         self.mode_manuel = QRadioButton("Avec révision manuelle des "
-                                        "cases douteuses")
+                                        "cases signalées")
         self.mode_auto.setChecked(True)
         lig.addWidget(self.mode_auto)
         lig.addWidget(self.mode_manuel)
@@ -161,7 +170,7 @@ class CorrectionPage(QWidget):
 
         self.b_analyser = bouton("Lancer l'analyse", "primaire",
                                  self.analyser)
-        self.b_reviser = bouton("Réviser les cases douteuses", None,
+        self.b_reviser = bouton("Réviser les cases signalées", None,
                                 self.reviser)
         self.b_calculer = bouton("Calculer les résultats", None,
                                  self.calculer)
@@ -232,8 +241,8 @@ class CorrectionPage(QWidget):
         self.b_analyser.setEnabled(sid is not None)
         self.b_reviser.setEnabled(douteuses > 0)
         self.b_reviser.setText(
-            f"Réviser les cases douteuses ({douteuses})" if douteuses
-            else "Réviser les cases douteuses")
+            f"Réviser les cases signalées ({douteuses})" if douteuses
+            else "Réviser les cases signalées")
         self.b_calculer.setEnabled(a_mesures > 0)
         self.b_exporter.setEnabled(self.resultats is not None)
 

@@ -12,9 +12,11 @@ from . import db
 
 
 def cases_a_reviser(con, sujet_id):
-    """Cases douteuses non tranchées, pour l'écran de révision manuelle."""
+    """Cases à vérifier manuellement : les douteuses (croix légère…) et
+    les cases noircies mais entourées (réponse annulée par l'élève)."""
     return con.execute(
-        "SELECT m.case_id, m.ratio, m.crop, co.numero, e.nom, e.prenom,"
+        "SELECT m.case_id, m.ratio, m.ratio_ext, m.etat, m.crop,"
+        "       co.numero, e.nom, e.prenom,"
         "       cq.ordre AS q_ordre, cr.ordre AS r_ordre "
         "FROM mesures m "
         "JOIN cases ca ON ca.id = m.case_id "
@@ -25,8 +27,11 @@ def cases_a_reviser(con, sujet_id):
         "JOIN copie_reponses cr ON cr.copie_id = ca.copie_id "
         "  AND cr.question_id = ca.question_id "
         "  AND cr.reponse_id = ca.reponse_id "
-        "WHERE co.sujet_id=? AND m.etat='douteuse' AND m.decision IS NULL "
-        "ORDER BY co.numero, cq.ordre, cr.ordre", (sujet_id,)).fetchall()
+        "WHERE co.sujet_id=? AND m.decision IS NULL "
+        "  AND (m.etat='douteuse' "
+        "       OR (m.etat='cochee' AND m.ratio_ext>=?)) "
+        "ORDER BY co.numero, cq.ordre, cr.ordre",
+        (sujet_id, C.SEUIL_ANNULEE)).fetchall()
 
 
 def trancher(con, case_id, decision):
@@ -104,10 +109,15 @@ def corriger_sujet(con, sujet_id, mode="auto"):
                         # « Entourez la case fautive et noircissez la
                         # bonne » : si exactement une des cases cochées
                         # n'est pas entourée, c'est elle la réponse.
+                        # Une décision manuelle « cochée » prime sur la
+                        # détection d'anneau.
                         ext = {r["reponse_id"]: (r["ratio_ext"] or 0.0)
                                for r in rows}
+                        decisions = {r["reponse_id"]: r["decision"]
+                                     for r in rows}
                         nettes = [rid for rid in cochees
-                                  if ext[rid] < C.SEUIL_ANNULEE]
+                                  if ext[rid] < C.SEUIL_ANNULEE
+                                  or decisions[rid] == "cochee"]
                         if len(nettes) == 1:
                             cochees = nettes
                     if not cochees:
