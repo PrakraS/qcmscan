@@ -9,11 +9,11 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (QApplication, QButtonGroup, QComboBox,
-                               QDialog, QFileDialog, QHBoxLayout, QLabel,
-                               QLineEdit, QListWidget, QListWidgetItem,
-                               QMenu, QPlainTextEdit, QRadioButton,
-                               QScrollArea, QSplitter, QToolButton,
-                               QVBoxLayout, QWidget)
+                               QDialog, QFileDialog, QHBoxLayout,
+                               QInputDialog, QLabel, QLineEdit, QListWidget,
+                               QListWidgetItem, QMenu, QPlainTextEdit,
+                               QRadioButton, QScrollArea, QSplitter,
+                               QToolButton, QVBoxLayout, QWidget)
 
 from .. import db
 from ..latexgen import compiler_apercu
@@ -110,12 +110,16 @@ class QuestionsPage(QWidget):
         lig1 = QHBoxLayout()
         lig1.addWidget(QLabel("Niveau :"))
         self.niveau = QComboBox()
-        self.niveau.setEditable(True)
+        self.niveau.currentIndexChanged.connect(self._maj_chapitres_editeur)
         lig1.addWidget(self.niveau, 1)
         lig1.addWidget(QLabel("Chapitre :"))
         self.chapitre = QComboBox()
-        self.chapitre.setEditable(True)
         lig1.addWidget(self.chapitre, 2)
+        plus = QToolButton()
+        plus.setText("＋")
+        plus.setToolTip("Nouveau chapitre")
+        plus.clicked.connect(self.nouveau_chapitre)
+        lig1.addWidget(plus)
         elay.addLayout(lig1)
 
         lbl = QLabel("ÉNONCÉ")
@@ -207,17 +211,45 @@ class QuestionsPage(QWidget):
         self._maj_filtre_chap()
 
         courant = self.niveau.currentText()
+        self.niveau.blockSignals(True)
         self.niveau.clear()
         self.niveau.addItem("")
         self.niveau.addItems(niveaux)
-        self.niveau.setCurrentText(courant)
-        courant = self.chapitre.currentText()
-        self.chapitre.clear()
-        self.chapitre.addItems(db.liste_chapitres(self.con))
-        self.chapitre.setCurrentText(courant)
+        self._choisir(self.niveau, courant)
+        self.niveau.blockSignals(False)
+        self._maj_chapitres_editeur()
 
         self._usages = db.usages_questions(self.con)
         self.recharger_liste()
+
+    @staticmethod
+    def _choisir(combo, texte):
+        """Sélectionne `texte` dans un combo non éditable, en l'ajoutant
+        au besoin (valeur héritée qui a quitté le catalogue)."""
+        if texte and combo.findText(texte) < 0:
+            combo.addItem(texte)
+        combo.setCurrentText(texte)
+
+    def _maj_chapitres_editeur(self):
+        """Chapitres proposés dans l'éditeur : ceux du niveau choisi, ou
+        tous si ce niveau n'en a pas encore."""
+        courant = self.chapitre.currentText()
+        niv = self.niveau.currentText() or None
+        chapitres = db.liste_chapitres(self.con, niv)
+        if niv and not chapitres:
+            chapitres = db.liste_chapitres(self.con)
+        self.chapitre.blockSignals(True)
+        self.chapitre.clear()
+        self.chapitre.addItem("")
+        self.chapitre.addItems(chapitres)
+        self._choisir(self.chapitre, courant)
+        self.chapitre.blockSignals(False)
+
+    def nouveau_chapitre(self):
+        nom, ok = QInputDialog.getText(self, "Nouveau chapitre",
+                                       "Nom du chapitre :")
+        if ok and nom.strip():
+            self._choisir(self.chapitre, nom.strip())
 
     def recharger_liste(self):
         self.liste.blockSignals(True)
@@ -302,8 +334,8 @@ class QuestionsPage(QWidget):
         q = self.con.execute("SELECT * FROM questions WHERE id=?",
                              (qid,)).fetchone()
         self.qid = qid
-        self.niveau.setCurrentText(q["niveau"])
-        self.chapitre.setCurrentText(q["chapitre"])
+        self._choisir(self.niveau, q["niveau"])
+        self._choisir(self.chapitre, q["chapitre"])
         self.enonce.setPlainText(q["enonce"])
         self.vider_reponses()
         for r in db.reponses_de(self.con, qid):
@@ -339,7 +371,7 @@ class QuestionsPage(QWidget):
         self.qid = None
         self.liste.clearSelection()
         if self._filtre_niveau_valeur():
-            self.niveau.setCurrentText(self._filtre_niveau_valeur())
+            self._choisir(self.niveau, self._filtre_niveau_valeur())
         self.enonce.clear()
         self.vider_reponses()
         for _ in range(4):
@@ -376,12 +408,9 @@ class QuestionsPage(QWidget):
         self.refresh()
 
     def supprimer(self):
+        """Envoi direct à la corbeille : récupérable, donc pas de
+        confirmation."""
         if self.qid is None:
-            return
-        if not confirmer(self, "Supprimer",
-                         "Envoyer cette question à la corbeille ?\n"
-                         "(restauration possible via le bouton "
-                         "« Corbeille… »)"):
             return
         db.supprimer_question(self.con, self.qid)
         self.nouvelle()
@@ -479,8 +508,44 @@ class QuestionsPage(QWidget):
             info(dlg, "Coller", msg)
             dlg.accept()
 
+        def consigne_ia():
+            niv = self._filtre_niveau_valeur() or "[niveau]"
+            chap = self.filtre_chap.currentText()
+            chap = chap if chap not in ("", "Tous") else "[chapitre]"
+            QApplication.clipboard().setText(
+                "Rédige des questions de QCM de mathématiques. Réponds "
+                "UNIQUEMENT avec les questions, au format exact suivant — "
+                "une question par bloc, une ligne vide entre les blocs :\n"
+                "\n"
+                f"[{niv} | {chap}]\n"
+                "Énoncé de la question.\n"
+                "* bonne réponse\n"
+                "- mauvaise réponse\n"
+                "- mauvaise réponse\n"
+                "- mauvaise réponse\n"
+                "\n"
+                "Règles impératives :\n"
+                "- exactement UNE bonne réponse par question, marquée "
+                "« * » ; les autres avec « - » ;\n"
+                "- 4 propositions par question ;\n"
+                "- notation mathématique en LaTeX entre $…$ (exemple : "
+                "$f(x)=2x+3$) ; écrire \\& pour afficher « & » ;\n"
+                f"- reprendre la ligne [{niv} | {chap}] en tête de "
+                "chaque bloc ;\n"
+                "- aucune numérotation, aucun texte hors des blocs ;\n"
+                "- des distracteurs plausibles (erreurs typiques "
+                "d'élèves).\n"
+                "\n"
+                f"Ma demande : [nombre] questions de niveau {niv} sur "
+                f"« {chap} ».")
+            info(dlg, "Consigne copiée",
+                 "La consigne est dans le presse-papiers : collez-la "
+                 "dans votre IA, complétez la dernière ligne (nombre, "
+                 "niveau, chapitre), puis rapportez sa réponse ici.")
+
         lay.addWidget(ligne_boutons(
             bouton("Ajouter à la banque", "primaire", valider),
+            bouton("Consigne pour l'IA", on_click=consigne_ia),
             bouton("Annuler", on_click=dlg.reject)))
         dlg.exec()
 

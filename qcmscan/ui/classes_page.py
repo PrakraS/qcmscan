@@ -45,13 +45,12 @@ class ClassesPage(QWidget):
         lig = QHBoxLayout()
         lig.addWidget(QLabel("Niveau de la classe :"))
         self.niveau = QComboBox()
-        self.niveau.setEditable(True)
         self.niveau.setMinimumWidth(150)
         self.niveau.setToolTip(
             "Sert aux indicateurs « déjà donnée à ce niveau » lors de "
-            "la composition des sujets.")
+            "la composition des sujets. La liste des niveaux se gère "
+            "dans la banque de questions (bouton ⚙).")
         self.niveau.activated.connect(self._sauver_niveau)
-        self.niveau.lineEdit().editingFinished.connect(self._sauver_niveau)
         lig.addWidget(self.niveau)
         lig.addStretch()
         dlay.addLayout(lig)
@@ -157,7 +156,10 @@ class ClassesPage(QWidget):
             return
         c = self.con.execute("SELECT niveau FROM classes WHERE id=?",
                              (cid,)).fetchone()
-        self.niveau.setCurrentText(c["niveau"] if c else "")
+        niv = c["niveau"] if c else ""
+        if niv and self.niveau.findText(niv) < 0:
+            self.niveau.addItem(niv)   # niveau hérité, hors catalogue
+        self.niveau.setCurrentText(niv)
         self._chargement = False
         for e in db.eleves_de(self.con, cid):
             self._ligne(e["nom"], e["prenom"])

@@ -7,6 +7,7 @@ et aux cases entièrement noircies. Chaque page porte un QR code identifiant
 (sujet, copie, page) et quatre marqueurs de coin pour le redressement.
 """
 
+import os
 import random
 import re
 import shutil
@@ -19,6 +20,10 @@ from . import config as C
 from . import db
 
 SP_TO_MM = 25.4 / (65536 * 72.27)
+
+# Sans ce drapeau, chaque pdflatex ouvre une fenêtre de console quand
+# l'application tourne sans terminal (lancement par QCMScan.pyw).
+_SANS_CONSOLE = (subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
 
 
 class LatexError(RuntimeError):
@@ -201,7 +206,7 @@ def _run_pdflatex(pdflatex, workdir: Path, texname: str):
             [pdflatex, "-interaction=nonstopmode", "-halt-on-error",
              "-file-line-error", texname],
             cwd=str(workdir), capture_output=True, text=True,
-            errors="replace")
+            errors="replace", creationflags=_SANS_CONSOLE)
         if r.returncode != 0:
             log = (workdir / texname.replace(".tex", ".log"))
             tail = ""
@@ -365,7 +370,8 @@ def compiler_apercu(con, enonce, reponses, workdir: Path) -> Path:
     (workdir / "apercu.tex").write_text(src, encoding="utf-8")
     r = subprocess.run(
         [pdflatex, "-interaction=nonstopmode", "-halt-on-error", "apercu.tex"],
-        cwd=str(workdir), capture_output=True, text=True, errors="replace")
+        cwd=str(workdir), capture_output=True, text=True, errors="replace",
+        creationflags=_SANS_CONSOLE)
     if r.returncode != 0:
         log = workdir / "apercu.log"
         tail = log.read_text(errors="replace")[-1500:] if log.exists() else ""

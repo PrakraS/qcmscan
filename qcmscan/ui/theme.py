@@ -226,6 +226,33 @@ QHeaderView::section {{
 }}
 QTableWidget {{ gridline-color: {p['grille']}; }}
 
+/* ------------------------------------------------- cases et puces */
+QRadioButton::indicator, QCheckBox::indicator {{
+    width: 14px;
+    height: 14px;
+    border: 1px solid {p['bord']};
+    background: {p['surface']};
+}}
+QRadioButton::indicator {{ border-radius: 8px; }}
+QCheckBox::indicator {{ border-radius: 3px; }}
+QRadioButton::indicator:hover, QCheckBox::indicator:hover {{
+    border-color: {p['accent']};
+}}
+QRadioButton::indicator:checked {{
+    width: 8px;
+    height: 8px;
+    border: 4px solid {p['accent']};
+    background: {p['surface']};
+}}
+QCheckBox::indicator:checked {{
+    background: {p['accent']};
+    border-color: {p['accent']};
+}}
+QRadioButton::indicator:disabled, QCheckBox::indicator:disabled {{
+    background: {p['desactive_fond']};
+    border-color: {p['bord']};
+}}
+
 /* ------------------------------------------------------------- divers */
 QScrollArea {{
     background: {p['surface']};
