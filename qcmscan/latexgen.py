@@ -30,17 +30,31 @@ class LatexError(RuntimeError):
     pass
 
 
+# Environnements et commandes où « & » est un séparateur légitime.
+_ENV_COLONNES = re.compile(
+    r"\\begin\{(?:array|tabular|cases|dcases|align|aligned|alignat"
+    r"|split|(?:p|b|v|V|small)?matrix)\*?\}"
+    r"|\\tkzTab")
+
+
 def verifier_texte_question(texte: str, emplacement: str) -> None:
     """Signale les esperluettes littérales avant de lancer pdflatex.
 
-    Les énoncés sont volontairement du LaTeX brut. Une esperluette isolée y
-    est toutefois presque toujours une faute de saisie : LaTeX la réserve aux
-    tableaux et alignements, et exige ``\\&`` pour l'afficher.
+    Les énoncés sont volontairement du LaTeX brut. Une esperluette isolée
+    y est presque toujours une faute de saisie : LaTeX la réserve aux
+    tableaux et alignements, et exige ``\\&`` pour l'afficher. En
+    revanche, dès que le texte contient un environnement à colonnes
+    (array, tabular, cases… ou un tableau tkz-tab), les « & » sont
+    considérés comme des séparateurs voulus.
     """
+    if _ENV_COLONNES.search(texte):
+        return
     if re.search(r"(?<!\\)(?:\\\\)*&", texte):
         raise LatexError(
             f"{emplacement} contient un « & » non échappé. "
-            "Pour afficher une esperluette, écrivez « \\& ».")
+            "Pour afficher une esperluette, écrivez « \\& ». "
+            "(Dans un tableau — array, tabular, cases… — les « & » "
+            "sont acceptés tels quels.)")
 
 
 def trouver_pdflatex(con=None) -> str:
@@ -80,6 +94,7 @@ PAQUETS_QUESTIONS = r"""\usepackage[T1]{fontenc}
 \usepackage[french]{babel}
 \usepackage{amsmath,amssymb}
 \usepackage{tikz}
+\usepackage{tkz-tab}
 \usepackage{graphicx}"""
 
 

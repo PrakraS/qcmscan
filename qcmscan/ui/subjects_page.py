@@ -153,7 +153,7 @@ class SubjectsPage(QWidget):
         picker.addLayout(colg, 1)
 
         cold = QVBoxLayout()
-        lbl = QLabel("QUESTIONS DU SUJET  (glisser pour réordonner)")
+        lbl = QLabel("QUESTIONS DU SUJET")
         lbl.setProperty("role", "section")
         cold.addWidget(lbl)
         self.table = TableQuestions(self)

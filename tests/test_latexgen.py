@@ -17,3 +17,20 @@ def test_escaped_ampersand_is_accepted():
 def test_ampersand_after_two_backslashes_is_reported():
     with pytest.raises(LatexError, match="non échappé"):
         verifier_texte_question(r"texte\\&", "La réponse 1")
+
+
+def test_ampersand_accepted_inside_array():
+    verifier_texte_question(
+        r"$\begin{array}{|c|c|} \hline x & 1 \\ \hline \end{array}$",
+        "L'énoncé")
+
+
+def test_ampersand_accepted_with_tkztab():
+    verifier_texte_question(
+        r"\tkzTabInit{$x$/1}{$-\infty$,$+\infty$} avec x & y", "L'énoncé")
+
+
+def test_ampersand_accepted_inside_cases():
+    verifier_texte_question(
+        r"$f(x)=\begin{cases} 1 & x>0 \\ 0 & sinon \end{cases}$",
+        "L'énoncé")
