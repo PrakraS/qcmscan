@@ -2,7 +2,9 @@
 
 Règle : une question rapporte ses points si exactement une case est cochée
 et que c'est la bonne. Zéro sinon (blanc, mauvaise réponse ou réponses
-multiples). Pas de points négatifs.
+multiples). Si les points négatifs sont activés sur le sujet, une mauvaise
+réponse ou des réponses multiples retirent le malus ; un blanc reste à
+zéro, et la note de la copie ne descend jamais sous 0.
 """
 
 from . import config as C
@@ -54,6 +56,7 @@ def corriger_sujet(con, sujet_id, mode="auto"):
     total = sum(
         (q["points"] if sujet["coef_actifs"] else sujet["points_defaut"])
         for q in db.questions_du_sujet(con, sujet_id))
+    malus = sujet["malus"] if sujet["malus_actif"] else 0.0
 
     resultats = []
     for copie in db.copies_du_sujet(con, sujet_id):
@@ -100,11 +103,13 @@ def corriger_sujet(con, sujet_id, mode="auto"):
                         statut = "blanc"
                     elif len(cochees) > 1:
                         statut = "multiple"
+                        note -= malus
                     elif cochees[0] == correcte_id:
                         statut = "juste"
                         note += pts
                     else:
                         statut = "faux"
+                        note -= malus
             lettres = {r["reponse_id"]: chr(65 + r["r_ordre"]) for r in rows}
             detail.append({
                 "ordre": cq["ordre"] + 1, "question_id": qid,
@@ -112,6 +117,7 @@ def corriger_sujet(con, sujet_id, mode="auto"):
                 "cochees": cochees, "correcte_id": correcte_id,
                 "lettres": lettres,
             })
+        note = max(note, 0.0)
         resultats.append({
             "copie_id": cid, "numero": copie["numero"],
             "eleve": f"{copie['nom']} {copie['prenom']}".strip(),

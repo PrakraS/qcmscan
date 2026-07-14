@@ -109,8 +109,12 @@ def _preambule() -> str:
 """
 
 
-def _entete_copie(copie_num, eleve, classe_nom, titre, date_str) -> str:
+def _entete_copie(copie_num, eleve, classe_nom, titre, date_str,
+                  malus=0.0) -> str:
     nom = escape_tex(f"{eleve['nom']} {eleve['prenom']}".strip())
+    consigne_malus = (
+        rf" Attention : une réponse fausse enlève {fmt_points(malus)} "
+        "(une question sans réponse ne retire rien)." if malus else "")
     return rf"""\setcounter{{copiepage}}{{0}}\def\copieid{{{copie_num}}}%
 \zlabel{{A-debut-{copie_num}}}%
 {{\Large\bfseries {nom}}} \hfill {escape_tex(classe_nom)}\\[0.5mm]
@@ -118,7 +122,7 @@ def _entete_copie(copie_num, eleve, classe_nom, titre, date_str) -> str:
 \rule{{\linewidth}}{{0.4pt}}\\[0.5mm]
 {{\small\itshape Noircissez complètement la case de votre réponse.
 Une seule réponse par question. En cas d'erreur, entourez la case fautive
-et noircissez la bonne.}}\\[2mm]
+et noircissez la bonne.{consigne_malus}}}\\[2mm]
 """
 
 
@@ -154,8 +158,10 @@ def construire_tex(con, sujet_id) -> tuple[str, list[dict]]:
         rng.shuffle(questions)
         if i > 0:
             parts.append(r"\clearpage")
-        parts.append(_entete_copie(num, eleve, classe["nom"],
-                                   sujet["titre"], sujet["date_creation"]))
+        parts.append(_entete_copie(
+            num, eleve, classe["nom"], sujet["titre"],
+            sujet["date_creation"],
+            malus=sujet["malus"] if sujet["malus_actif"] else 0.0))
         qplan = []
         for pos, q in enumerate(questions, start=1):
             reps = list(db.reponses_de(con, q["id"]))

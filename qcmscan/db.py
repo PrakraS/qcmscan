@@ -40,6 +40,8 @@ CREATE TABLE IF NOT EXISTS sujets (
     date_creation TEXT NOT NULL DEFAULT (date('now')),
     points_defaut REAL NOT NULL DEFAULT 1.0,
     coef_actifs INTEGER NOT NULL DEFAULT 0,
+    malus_actif INTEGER NOT NULL DEFAULT 0,  -- points négatifs si faux
+    malus REAL NOT NULL DEFAULT 0.5,
     etat TEXT NOT NULL DEFAULT 'brouillon'   -- brouillon | genere
 );
 
@@ -119,7 +121,20 @@ def connect(path: Path) -> sqlite3.Connection:
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA foreign_keys = ON")
     con.executescript(_SCHEMA)
+    _migrer(con)
     return con
+
+
+def _migrer(con):
+    """Ajoute aux bases existantes les colonnes apparues depuis leur création
+    (CREATE TABLE IF NOT EXISTS ne modifie pas les tables déjà en place)."""
+    cols = {r[1] for r in con.execute("PRAGMA table_info(sujets)")}
+    if "malus_actif" not in cols:
+        con.execute("ALTER TABLE sujets ADD COLUMN malus_actif INTEGER "
+                    "NOT NULL DEFAULT 0")
+        con.execute("ALTER TABLE sujets ADD COLUMN malus REAL "
+                    "NOT NULL DEFAULT 0.5")
+        con.commit()
 
 
 # --------------------------------------------------------------- questions

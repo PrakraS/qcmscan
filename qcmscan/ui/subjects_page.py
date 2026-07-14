@@ -63,6 +63,20 @@ class SubjectsPage(QWidget):
         self.coefs = QCheckBox("Coefficients par question")
         self.coefs.toggled.connect(self._toggle_coefs)
         lig.addWidget(self.coefs)
+        self.malus_actif = QCheckBox("Points négatifs :")
+        self.malus_actif.setToolTip(
+            "Une mauvaise réponse ou plusieurs cases cochées retirent le "
+            "malus. Blanc : zéro. La note d'une copie ne descend pas "
+            "sous 0.")
+        lig.addWidget(self.malus_actif)
+        self.malus = QDoubleSpinBox()
+        self.malus.setRange(0.25, 10)
+        self.malus.setSingleStep(0.25)
+        self.malus.setValue(0.5)
+        self.malus.setPrefix("− ")
+        self.malus.setEnabled(False)
+        self.malus_actif.toggled.connect(self.malus.setEnabled)
+        lig.addWidget(self.malus)
         lig.addStretch()
         dlay.addLayout(lig)
 
@@ -190,6 +204,8 @@ class SubjectsPage(QWidget):
         self.titre.setText("")
         self.points.setValue(1.0)
         self.coefs.setChecked(False)
+        self.malus_actif.setChecked(False)
+        self.malus.setValue(0.5)
         self.table.setRowCount(0)
         self._recharger_banque()
         self._maj_boutons()
@@ -205,6 +221,8 @@ class SubjectsPage(QWidget):
         self.titre.setText(s["titre"])
         self.points.setValue(s["points_defaut"])
         self.coefs.setChecked(bool(s["coef_actifs"]))
+        self.malus_actif.setChecked(bool(s["malus_actif"]))
+        self.malus.setValue(s["malus"])
         i = self.classe.findData(s["classe_id"])
         self.classe.setCurrentIndex(max(i, 0))
         self.table.setRowCount(0)
@@ -268,16 +286,19 @@ class SubjectsPage(QWidget):
         if self.sujet_id is None:
             cur = self.con.execute(
                 "INSERT INTO sujets(titre, classe_id, points_defaut,"
-                " coef_actifs) VALUES(?,?,?,?)",
+                " coef_actifs, malus_actif, malus) VALUES(?,?,?,?,?,?)",
                 (titre, classe_id, self.points.value(),
-                 int(self.coefs.isChecked())))
+                 int(self.coefs.isChecked()),
+                 int(self.malus_actif.isChecked()), self.malus.value()))
             self.sujet_id = cur.lastrowid
         else:
             self.con.execute(
                 "UPDATE sujets SET titre=?, classe_id=?, points_defaut=?,"
-                " coef_actifs=? WHERE id=?",
+                " coef_actifs=?, malus_actif=?, malus=? WHERE id=?",
                 (titre, classe_id, self.points.value(),
-                 int(self.coefs.isChecked()), self.sujet_id))
+                 int(self.coefs.isChecked()),
+                 int(self.malus_actif.isChecked()), self.malus.value(),
+                 self.sujet_id))
         self.con.execute("DELETE FROM sujet_questions WHERE sujet_id=?",
                          (self.sujet_id,))
         for r in range(self.table.rowCount()):

@@ -58,8 +58,12 @@ l'application lit la clé `pdflatex` de la table `settings` de la base
 ## Notation
 
 Une question rapporte ses points si exactement une case est cochée et que
-c'est la bonne. Blanc, mauvaise réponse ou réponses multiples : zéro. Pas
-de points négatifs.
+c'est la bonne. Blanc, mauvaise réponse ou réponses multiples : zéro.
+
+Option « Points négatifs » (onglet Sujets) : une mauvaise réponse ou des
+réponses multiples retirent le malus choisi (un blanc reste à zéro) ; la
+note d'une copie ne descend jamais sous 0. La règle est rappelée dans la
+consigne imprimée en tête de chaque copie.
 
 ## Données
 
