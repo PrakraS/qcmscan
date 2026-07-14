@@ -19,8 +19,18 @@ def db_path() -> Path:
     return data_dir() / DB_FILENAME
 
 
+def app_dir() -> Path:
+    """Dossier de l'application (celui qui contient main.py)."""
+    return Path(__file__).resolve().parents[1]
+
+
+def sujets_root() -> Path:
+    """Les PDF générés vont à côté de l'application, faciles à retrouver."""
+    return app_dir() / "sujets"
+
+
 def subject_dir(sujet_id: int) -> Path:
-    d = data_dir() / "sujets" / f"sujet_{sujet_id:04d}"
+    d = sujets_root() / f"sujet_{sujet_id:04d}"
     d.mkdir(parents=True, exist_ok=True)
     return d
 

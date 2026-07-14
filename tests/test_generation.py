@@ -20,6 +20,7 @@ import qcmscan.paths as paths
 
 TMP = Path(tempfile.mkdtemp())
 paths.data_dir = lambda: TMP
+paths.sujets_root = lambda: TMP / "sujets"
 
 from qcmscan import config as C
 from qcmscan import db, grading

@@ -66,6 +66,18 @@ def fmt_points(p: float) -> str:
 
 # ------------------------------------------------------------------ tex
 
+# Paquets LaTeX disponibles dans les énoncés et les réponses. Pour en
+# ajouter un, une ligne ici suffit : il sera chargé à la fois pour les
+# copies et pour l'aperçu de l'éditeur (MiKTeX installe automatiquement
+# les paquets manquants à la première compilation).
+PAQUETS_QUESTIONS = r"""\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[french]{babel}
+\usepackage{amsmath,amssymb}
+\usepackage{tikz}
+\usepackage{graphicx}"""
+
+
 def _preambule() -> str:
     m = C.MARK_MM
     marks = "".join(
@@ -75,13 +87,8 @@ def _preambule() -> str:
     qx, qy = C.QR_POS_PDF
     case = f"{C.CASE_MM:g}"
     return rf"""\documentclass[11pt,a4paper]{{article}}
-\usepackage[T1]{{fontenc}}
-\usepackage[utf8]{{inputenc}}
-\usepackage[french]{{babel}}
-\usepackage{{amsmath,amssymb}}
-\usepackage{{tikz}}
+{PAQUETS_QUESTIONS}
 \usepackage[a4paper,left=20mm,right=20mm,top=26mm,bottom=24mm]{{geometry}}
-\usepackage{{graphicx}}
 \usepackage{{eso-pic}}
 \usepackage{{zref-savepos,zref-abspage,zref-user}}
 \pagestyle{{empty}}
@@ -352,11 +359,9 @@ def compiler_apercu(con, enonce, reponses, workdir: Path) -> Path:
         lettre = chr(65 + j)
         coche = r"$\boxtimes$" if correcte else r"$\square$"
         corps.append(rf"{coche}~\textbf{{{lettre}.}}~{texte}\par\vspace{{1mm}}")
-    src = (r"""\documentclass[preview,border=8pt,varwidth=160mm]{standalone}
-\usepackage[T1]{fontenc}\usepackage[utf8]{inputenc}\usepackage[french]{babel}
-\usepackage{amsmath,amssymb}\usepackage{tikz}
-\begin{document}
-""" + "\n".join(corps) + "\n\\end{document}\n")
+    src = (r"\documentclass[preview,border=8pt,varwidth=160mm]{standalone}"
+           "\n" + PAQUETS_QUESTIONS + "\n\\begin{document}\n"
+           + "\n".join(corps) + "\n\\end{document}\n")
     (workdir / "apercu.tex").write_text(src, encoding="utf-8")
     r = subprocess.run(
         [pdflatex, "-interaction=nonstopmode", "-halt-on-error", "apercu.tex"],

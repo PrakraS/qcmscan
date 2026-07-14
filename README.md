@@ -67,9 +67,13 @@ consigne imprimée en tête de chaque copie.
 
 ## Données
 
-Tout est stocké dans `%APPDATA%\QCMScan\` : base SQLite, sources LaTeX et
-PDF générés (`sujets\`), pages scannées redressées (`scans\`). Sauvegarder
-ce dossier suffit à tout conserver.
+- Les copies et corrigés générés (`main.pdf`, `corrige.pdf`) sont écrits
+  dans le dossier `sujets\` **à côté de l'application** (un sous-dossier
+  par sujet), faciles à retrouver pour l'impression.
+- La base SQLite et les pages scannées redressées restent dans
+  `%APPDATA%\QCMScan\`.
+
+Sauvegarder ces deux dossiers conserve tout.
 
 ## Limites connues
 
