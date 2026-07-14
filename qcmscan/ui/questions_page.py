@@ -11,8 +11,9 @@ from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (QApplication, QButtonGroup, QComboBox,
                                QDialog, QFileDialog, QHBoxLayout, QLabel,
                                QLineEdit, QListWidget, QListWidgetItem,
-                               QPlainTextEdit, QRadioButton, QScrollArea,
-                               QSplitter, QToolButton, QVBoxLayout, QWidget)
+                               QMenu, QPlainTextEdit, QRadioButton,
+                               QScrollArea, QSplitter, QToolButton,
+                               QVBoxLayout, QWidget)
 
 from .. import db
 from ..latexgen import compiler_apercu
@@ -58,22 +59,41 @@ class QuestionsPage(QWidget):
             "Banque de questions",
             "Les énoncés et les réponses doivent être en LaTeX."))
 
+        self._usages = {}
         barre = QHBoxLayout()
+        self.filtre_niveau = QComboBox()
+        self.filtre_niveau.setMinimumWidth(110)
+        self.filtre_niveau.currentIndexChanged.connect(self._niveau_change)
+        gerer = QToolButton()
+        gerer.setText("⚙")
+        gerer.setToolTip("Gérer les niveaux")
+        gerer.clicked.connect(self.gerer_niveaux)
         self.filtre_chap = QComboBox()
-        self.filtre_chap.setMinimumWidth(180)
+        self.filtre_chap.setMinimumWidth(160)
         self.filtre_chap.currentIndexChanged.connect(self.recharger_liste)
         self.recherche = QLineEdit()
         self.recherche.setPlaceholderText("Rechercher dans les énoncés…")
         self.recherche.textChanged.connect(self.recharger_liste)
+        barre.addWidget(QLabel("Niveau :"))
+        barre.addWidget(self.filtre_niveau)
+        barre.addWidget(gerer)
         barre.addWidget(QLabel("Chapitre :"))
         barre.addWidget(self.filtre_chap)
         barre.addWidget(self.recherche, 1)
         barre.addWidget(bouton("Nouvelle question", "primaire",
                                self.nouvelle))
         barre.addWidget(bouton("Coller…", on_click=self.coller))
-        barre.addWidget(bouton("Exporter…", on_click=self.exporter))
-        barre.addWidget(bouton("Importer…", on_click=self.importer))
-        barre.addWidget(bouton("Corbeille…", on_click=self.corbeille))
+        outils = QToolButton()
+        outils.setText("⋯")
+        outils.setToolTip("Exporter, importer, corbeille")
+        menu = QMenu(outils)
+        menu.addAction("Exporter la banque…", self.exporter)
+        menu.addAction("Importer un fichier…", self.importer)
+        menu.addSeparator()
+        menu.addAction("Corbeille…", self.corbeille)
+        outils.setMenu(menu)
+        outils.setPopupMode(QToolButton.InstantPopup)
+        barre.addWidget(outils)
         racine.addLayout(barre)
 
         split = QSplitter()
@@ -88,10 +108,14 @@ class QuestionsPage(QWidget):
         elay.setContentsMargins(8, 0, 0, 0)
 
         lig1 = QHBoxLayout()
+        lig1.addWidget(QLabel("Niveau :"))
+        self.niveau = QComboBox()
+        self.niveau.setEditable(True)
+        lig1.addWidget(self.niveau, 1)
         lig1.addWidget(QLabel("Chapitre :"))
         self.chapitre = QComboBox()
         self.chapitre.setEditable(True)
-        lig1.addWidget(self.chapitre, 1)
+        lig1.addWidget(self.chapitre, 2)
         elay.addLayout(lig1)
 
         lbl = QLabel("ÉNONCÉ")
@@ -151,21 +175,48 @@ class QuestionsPage(QWidget):
         self.refresh()
 
     # ------------------------------------------------------------ données
-    def refresh(self):
+    def _filtre_niveau_valeur(self):
+        n = self.filtre_niveau.currentText()
+        return None if n in ("", "Tous") else n
+
+    def _maj_filtre_chap(self):
         courant = self.filtre_chap.currentText()
         self.filtre_chap.blockSignals(True)
         self.filtre_chap.clear()
         self.filtre_chap.addItem("Tous")
-        chapitres = db.liste_chapitres(self.con)
-        self.filtre_chap.addItems(chapitres)
+        self.filtre_chap.addItems(
+            db.liste_chapitres(self.con, self._filtre_niveau_valeur()))
         i = self.filtre_chap.findText(courant)
         self.filtre_chap.setCurrentIndex(max(i, 0))
         self.filtre_chap.blockSignals(False)
 
+    def _niveau_change(self):
+        self._maj_filtre_chap()
+        self.recharger_liste()
+
+    def refresh(self):
+        niveaux = db.liste_niveaux(self.con)
+        courant = self.filtre_niveau.currentText()
+        self.filtre_niveau.blockSignals(True)
+        self.filtre_niveau.clear()
+        self.filtre_niveau.addItem("Tous")
+        self.filtre_niveau.addItems(niveaux)
+        i = self.filtre_niveau.findText(courant)
+        self.filtre_niveau.setCurrentIndex(max(i, 0))
+        self.filtre_niveau.blockSignals(False)
+        self._maj_filtre_chap()
+
+        courant = self.niveau.currentText()
+        self.niveau.clear()
+        self.niveau.addItem("")
+        self.niveau.addItems(niveaux)
+        self.niveau.setCurrentText(courant)
         courant = self.chapitre.currentText()
         self.chapitre.clear()
-        self.chapitre.addItems(chapitres)
+        self.chapitre.addItems(db.liste_chapitres(self.con))
         self.chapitre.setCurrentText(courant)
+
+        self._usages = db.usages_questions(self.con)
         self.recharger_liste()
 
     def recharger_liste(self):
@@ -174,12 +225,75 @@ class QuestionsPage(QWidget):
         chap = self.filtre_chap.currentText()
         chap = None if chap in ("", "Tous") else chap
         for q in db.liste_questions(self.con, chap,
-                                    self.recherche.text().strip() or None):
+                                    self.recherche.text().strip() or None,
+                                    self._filtre_niveau_valeur()):
             apercu = " ".join(q["enonce"].split())[:70]
-            it = QListWidgetItem(f"[{q['chapitre']}]  {apercu}")
+            tete = (f"[{q['niveau']} · {q['chapitre']}]" if q["niveau"]
+                    else f"[{q['chapitre']}]")
+            usages = self._usages.get(q["id"], [])
+            badge = f"    ⬩{len(usages)}" if usages else ""
+            it = QListWidgetItem(f"{tete}  {apercu}{badge}")
             it.setData(Qt.UserRole, q["id"])
+            if usages:
+                it.setToolTip("Utilisée dans :\n" + "\n".join(
+                    f"– {u['titre']} — {u['classe']}"
+                    + (f" ({u['niveau']})" if u["niveau"] else "")
+                    + f", {u['date_creation']}" for u in usages))
             self.liste.addItem(it)
         self.liste.blockSignals(False)
+
+    # ------------------------------------------------------------ niveaux
+    def gerer_niveaux(self):
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Niveaux")
+        dlg.resize(380, 380)
+        lay = QVBoxLayout(dlg)
+        aide = QLabel("Niveaux proposés dans les listes déroulantes. "
+                      "En retirer un ne modifie pas les questions "
+                      "qui le portent.")
+        aide.setWordWrap(True)
+        aide.setObjectName("sousTitre")
+        lay.addWidget(aide)
+        liste = QListWidget()
+        lay.addWidget(liste, 1)
+        lig = QHBoxLayout()
+        champ = QLineEdit()
+        champ.setPlaceholderText("Nouveau niveau…")
+        lig.addWidget(champ, 1)
+
+        def recharger():
+            liste.clear()
+            for r in self.con.execute(
+                    "SELECT nom FROM niveaux ORDER BY ordre, nom"):
+                liste.addItem(r["nom"])
+
+        def ajouter():
+            if champ.text().strip():
+                db.ajouter_niveau(self.con, champ.text())
+                champ.clear()
+                recharger()
+                self.refresh()
+
+        def retirer():
+            it = liste.currentItem()
+            if it is None:
+                return
+            if confirmer(dlg, "Retirer le niveau",
+                         f"Retirer « {it.text()} » de la liste des "
+                         "niveaux ?\nLes questions et classes de ce "
+                         "niveau ne sont pas modifiées."):
+                db.supprimer_niveau(self.con, it.text())
+                recharger()
+                self.refresh()
+
+        champ.returnPressed.connect(ajouter)
+        lig.addWidget(bouton("Ajouter", "primaire", ajouter))
+        lay.addLayout(lig)
+        lay.addWidget(ligne_boutons(
+            bouton("Retirer la sélection", "danger", retirer),
+            bouton("Fermer", on_click=dlg.accept)))
+        recharger()
+        dlg.exec()
 
     def charger_selection(self, item, _=None):
         if item is None:
@@ -188,6 +302,7 @@ class QuestionsPage(QWidget):
         q = self.con.execute("SELECT * FROM questions WHERE id=?",
                              (qid,)).fetchone()
         self.qid = qid
+        self.niveau.setCurrentText(q["niveau"])
         self.chapitre.setCurrentText(q["chapitre"])
         self.enonce.setPlainText(q["enonce"])
         self.vider_reponses()
@@ -223,6 +338,8 @@ class QuestionsPage(QWidget):
     def nouvelle(self):
         self.qid = None
         self.liste.clearSelection()
+        if self._filtre_niveau_valeur():
+            self.niveau.setCurrentText(self._filtre_niveau_valeur())
         self.enonce.clear()
         self.vider_reponses()
         for _ in range(4):
@@ -251,7 +368,8 @@ class QuestionsPage(QWidget):
         try:
             self.qid = db.sauver_question(
                 self.con, self.qid, self.chapitre.currentText().strip(),
-                self.enonce.toPlainText().strip(), reponses)
+                self.enonce.toPlainText().strip(), reponses,
+                niveau=self.niveau.currentText())
         except Exception as e:  # noqa: BLE001 — remonté à l'utilisateur
             erreur(self, "Enregistrer", str(e))
             return
@@ -324,14 +442,14 @@ class QuestionsPage(QWidget):
         lay = QVBoxLayout(dlg)
         aide = QLabel(
             "Un bloc par question, une ligne vide entre les blocs.\n"
-            "Première ligne « [Chapitre] » facultative, puis l'énoncé, puis "
-            "les réponses :\n« * » devant la bonne, « - » devant les autres. "
-            "LaTeX autorisé.")
+            "Première ligne « [Niveau | Chapitre] » ou « [Chapitre] » "
+            "facultative, puis l'énoncé, puis les réponses :\n« * » devant "
+            "la bonne, « - » devant les autres. LaTeX autorisé.")
         aide.setObjectName("sousTitre")
         lay.addWidget(aide)
         zone = QPlainTextEdit()
         zone.setPlaceholderText(
-            "[Dérivation]\n"
+            "[1SPE | Dérivation]\n"
             "Soit $f(x)=x^2+3x$. Que vaut $f'(x)$ ?\n"
             "* $2x+3$\n"
             "- $x^2$\n"
@@ -346,8 +464,10 @@ class QuestionsPage(QWidget):
         def valider():
             chap = self.filtre_chap.currentText()
             chap = "" if chap in ("", "Tous") else chap
+            niv = self._filtre_niveau_valeur() or ""
             try:
-                data = db.parser_questions_texte(zone.toPlainText(), chap)
+                data = db.parser_questions_texte(zone.toPlainText(),
+                                                 chap, niv)
                 ajoutees, ignorees = db.importer_questions(self.con, data)
             except ValueError as e:
                 erreur(dlg, "Coller", str(e))
@@ -365,16 +485,20 @@ class QuestionsPage(QWidget):
         dlg.exec()
 
     def exporter(self):
-        """Exporte la banque telle que filtrée (chapitre + recherche)."""
+        """Exporte la banque telle que filtrée (niveau + chapitre +
+        recherche)."""
         chap = self.filtre_chap.currentText()
         chap = None if chap in ("", "Tous") else chap
+        niv = self._filtre_niveau_valeur()
         data = db.exporter_questions(self.con, chap,
-                                     self.recherche.text().strip() or None)
+                                     self.recherche.text().strip() or None,
+                                     niv)
         if not data:
             info(self, "Exporter", "Aucune question à exporter "
                  "(avec le filtre actuel).")
             return
-        nom = f"banque_{chap}.json" if chap else "banque_qcm.json"
+        nom = "banque_" + "_".join(p for p in (niv, chap) if p) + ".json" \
+            if (niv or chap) else "banque_qcm.json"
         chemin, _ = QFileDialog.getSaveFileName(
             self, "Exporter la banque", nom, "JSON (*.json)")
         if not chemin:

@@ -29,11 +29,20 @@ l'application lit la clé `pdflatex` de la table `settings` de la base
 
 1. **Banque de questions** — énoncés et réponses en LaTeX (mode maths avec
    `$…$`, TikZ accepté dans les énoncés). Une seule bonne réponse par
-   question. Le bouton « Aperçu PDF » compile la question seule.
+   question. L'aperçu compilé se met à jour tout seul pendant la frappe.
+   Chaque question porte un **niveau** (Seconde, 1SPE… liste gérable via
+   « ⚙ ») et un **chapitre** ; le badge « ⬩n » signale une question déjà
+   utilisée (détail au survol). Les questions supprimées vont dans une
+   corbeille (menu « ⋯ »), restaurables ou supprimables définitivement.
 2. **Classes** — saisie directe, import CSV (`Nom;Prénom`) ou collage
-   depuis un tableur.
-3. **Sujets** — choisir la classe, composer la liste de questions, fixer le
-   barème (points identiques par défaut, ou coefficients par question).
+   depuis un tableur. Chaque classe porte un niveau, utilisé par les
+   indicateurs « déjà donnée » lors de la composition des sujets.
+3. **Sujets** — choisir la classe, composer la liste de questions
+   (glisser-déposer depuis la banque, réordonnancement à la souris ;
+   « ⚠ » = déjà donnée à cette classe, « • » = déjà donnée à ce niveau —
+   information seulement, jamais bloquant), fixer le barème (points
+   identiques par défaut, coefficients par question, points négatifs
+   optionnels).
    « Générer les copies » produit :
    - `main.pdf` : une copie nominative par élève, questions et réponses
      mélangées, cases à cocher dans le corps du sujet, QR code et marqueurs
@@ -51,11 +60,12 @@ l'application lit la clé `pdflatex` de la table `settings` de la base
 
 Le bouton « Coller… » de la banque importe des questions au format texte,
 pratique pour récupérer ce qu'une IA rédige. Un bloc par question, une
-ligne vide entre les blocs, `[Chapitre]` facultatif en tête de bloc, `*`
-devant la bonne réponse, `-` devant les autres, LaTeX autorisé :
+ligne vide entre les blocs, `[Niveau | Chapitre]` (ou `[Chapitre]` seul)
+facultatif en tête de bloc, `*` devant la bonne réponse, `-` devant les
+autres, LaTeX autorisé :
 
 ```
-[Dérivation]
+[1SPE | Dérivation]
 Soit $f(x)=x^2+3x$. Que vaut $f'(x)$ ?
 * $2x+3$
 - $x^2$

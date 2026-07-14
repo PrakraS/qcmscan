@@ -97,6 +97,7 @@ class SubjectsPage(QWidget):
         lig.addWidget(self.titre, 2)
         lig.addWidget(QLabel("Classe :"))
         self.classe = QComboBox()
+        self.classe.currentIndexChanged.connect(self._recharger_banque)
         lig.addWidget(self.classe, 1)
         dlay.addLayout(lig)
 
@@ -129,9 +130,12 @@ class SubjectsPage(QWidget):
 
         picker = QHBoxLayout()
         colg = QVBoxLayout()
-        lbl = QLabel("BANQUE")
+        lbl = QLabel("BANQUE  (⚠ déjà donnée à la classe, • au niveau)")
         lbl.setProperty("role", "section")
         colg.addWidget(lbl)
+        self.filtre_niveau = QComboBox()
+        self.filtre_niveau.currentIndexChanged.connect(self._niveau_change)
+        colg.addWidget(self.filtre_niveau)
         self.filtre_chap = QComboBox()
         self.filtre_chap.currentIndexChanged.connect(self._recharger_banque)
         colg.addWidget(self.filtre_chap)
@@ -196,32 +200,88 @@ class SubjectsPage(QWidget):
                 self.liste.setCurrentItem(it)
         self.liste.blockSignals(False)
 
+        self.classe.blockSignals(True)
+        classe_courante = self.classe.currentData()
         self.classe.clear()
         for c in db.liste_classes(self.con):
             self.classe.addItem(c["nom"], c["id"])
+        i = self.classe.findData(classe_courante)
+        if i >= 0:
+            self.classe.setCurrentIndex(i)
+        self.classe.blockSignals(False)
 
+        courant = self.filtre_niveau.currentText()
+        self.filtre_niveau.blockSignals(True)
+        self.filtre_niveau.clear()
+        self.filtre_niveau.addItem("Tous niveaux")
+        self.filtre_niveau.addItems(db.liste_niveaux(self.con))
+        i = self.filtre_niveau.findText(courant)
+        self.filtre_niveau.setCurrentIndex(max(i, 0))
+        self.filtre_niveau.blockSignals(False)
+        self._niveau_change()
+        self._maj_boutons()
+
+    def _niveau_valeur(self):
+        n = self.filtre_niveau.currentText()
+        return None if n in ("", "Tous niveaux") else n
+
+    def _niveau_change(self):
         courant = self.filtre_chap.currentText()
         self.filtre_chap.blockSignals(True)
         self.filtre_chap.clear()
         self.filtre_chap.addItem("Tous")
-        self.filtre_chap.addItems(db.liste_chapitres(self.con))
+        self.filtre_chap.addItems(
+            db.liste_chapitres(self.con, self._niveau_valeur()))
         i = self.filtre_chap.findText(courant)
         self.filtre_chap.setCurrentIndex(max(i, 0))
         self.filtre_chap.blockSignals(False)
         self._recharger_banque()
-        self._maj_boutons()
+
+    @staticmethod
+    def _detail_usages(usages):
+        return "\n".join(
+            f"– {u['titre']} — {u['classe']}"
+            + (f" ({u['niveau']})" if u["niveau"] else "")
+            + f", {u['date_creation']}" for u in usages)
 
     def _recharger_banque(self):
         self.banque.clear()
         chap = self.filtre_chap.currentText()
         chap = None if chap in ("", "Tous") else chap
         deja = set(self._question_ids())
-        for q in db.liste_questions(self.con, chap):
+        usages = db.usages_questions(self.con)
+        classe_id = self.classe.currentData()
+        niveau_classe = ""
+        if classe_id is not None:
+            r = self.con.execute("SELECT niveau FROM classes WHERE id=?",
+                                 (classe_id,)).fetchone()
+            niveau_classe = r["niveau"] if r else ""
+        for q in db.liste_questions(self.con, chap, None,
+                                    self._niveau_valeur()):
             if q["id"] in deja:
                 continue
             apercu = " ".join(q["enonce"].split())[:60]
-            it = QListWidgetItem(f"[{q['chapitre']}]  {apercu}")
+            tete = (f"[{q['niveau']} · {q['chapitre']}]" if q["niveau"]
+                    else f"[{q['chapitre']}]")
+            u = usages.get(q["id"], [])
+            u_classe = [x for x in u if x["classe_id"] == classe_id]
+            u_niveau = [x for x in u
+                        if niveau_classe and x["niveau"] == niveau_classe]
+            marque, tip = "", ""
+            if u_classe:
+                marque = "⚠ "
+                tip = "Déjà donnée à cette classe :\n" \
+                    + self._detail_usages(u_classe)
+            elif u_niveau:
+                marque = "• "
+                tip = f"Déjà donnée en {niveau_classe} :\n" \
+                    + self._detail_usages(u_niveau)
+            elif u:
+                tip = "Utilisée dans :\n" + self._detail_usages(u)
+            it = QListWidgetItem(f"{marque}{tete}  {apercu}")
             it.setData(Qt.UserRole, q["id"])
+            if tip:
+                it.setToolTip(tip)
             self.banque.addItem(it)
 
     def _question_ids(self):

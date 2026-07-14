@@ -3,10 +3,11 @@
 import csv
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QApplication, QFileDialog, QHBoxLayout,
-                               QInputDialog, QLabel, QListWidget,
-                               QListWidgetItem, QSplitter, QTableWidget,
-                               QTableWidgetItem, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QApplication, QComboBox, QFileDialog,
+                               QHBoxLayout, QInputDialog, QLabel,
+                               QListWidget, QListWidgetItem, QSplitter,
+                               QTableWidget, QTableWidgetItem, QVBoxLayout,
+                               QWidget)
 
 from .. import db
 from .widgets import bouton, confirmer, entete, erreur, info, ligne_boutons
@@ -40,6 +41,20 @@ class ClassesPage(QWidget):
         droite = QWidget()
         dlay = QVBoxLayout(droite)
         dlay.setContentsMargins(8, 0, 0, 0)
+        self._chargement = False
+        lig = QHBoxLayout()
+        lig.addWidget(QLabel("Niveau de la classe :"))
+        self.niveau = QComboBox()
+        self.niveau.setEditable(True)
+        self.niveau.setMinimumWidth(150)
+        self.niveau.setToolTip(
+            "Sert aux indicateurs « déjà donnée à ce niveau » lors de "
+            "la composition des sujets.")
+        self.niveau.activated.connect(self._sauver_niveau)
+        self.niveau.lineEdit().editingFinished.connect(self._sauver_niveau)
+        lig.addWidget(self.niveau)
+        lig.addStretch()
+        dlay.addLayout(lig)
         self.table = QTableWidget(0, 2)
         self.table.setHorizontalHeaderLabels(["Nom", "Prénom"])
         self.table.horizontalHeader().setStretchLastSection(True)
@@ -65,6 +80,12 @@ class ClassesPage(QWidget):
         return it.data(Qt.UserRole) if it else None
 
     def refresh(self):
+        self._chargement = True
+        self.niveau.clear()
+        self.niveau.addItem("")
+        self.niveau.addItems(db.liste_niveaux(self.con))
+        self._chargement = False
+
         cid = self.classe_id()
         self.liste.blockSignals(True)
         self.liste.clear()
@@ -72,7 +93,8 @@ class ClassesPage(QWidget):
             n = self.con.execute(
                 "SELECT COUNT(*) n FROM eleves WHERE classe_id=?",
                 (c["id"],)).fetchone()["n"]
-            it = QListWidgetItem(f"{c['nom']}   ({n} élèves)")
+            niv = f" — {c['niveau']}" if c["niveau"] else ""
+            it = QListWidgetItem(f"{c['nom']}{niv}   ({n} élèves)")
             it.setData(Qt.UserRole, c["id"])
             self.liste.addItem(it)
             if c["id"] == cid:
@@ -127,12 +149,37 @@ class ClassesPage(QWidget):
     def charger_classe(self, item, _=None):
         self.table.setRowCount(0)
         cid = item.data(Qt.UserRole) if item else None
+        self._chargement = True
         if cid is None:
+            self.niveau.setCurrentText("")
+            self._chargement = False
             self.compteur.setText("")
             return
+        c = self.con.execute("SELECT niveau FROM classes WHERE id=?",
+                             (cid,)).fetchone()
+        self.niveau.setCurrentText(c["niveau"] if c else "")
+        self._chargement = False
         for e in db.eleves_de(self.con, cid):
             self._ligne(e["nom"], e["prenom"])
         self.compteur.setText(f"{self.table.rowCount()} élèves")
+
+    def _sauver_niveau(self, *_):
+        if self._chargement:
+            return
+        cid = self.classe_id()
+        if cid is None:
+            return
+        niv = self.niveau.currentText().strip()
+        actuel = self.con.execute(
+            "SELECT niveau FROM classes WHERE id=?", (cid,)).fetchone()
+        if actuel is None or actuel["niveau"] == niv:
+            return
+        self.con.execute("UPDATE classes SET niveau=? WHERE id=?",
+                         (niv, cid))
+        self.con.commit()
+        if niv:
+            db.ajouter_niveau(self.con, niv)
+        self.refresh()
 
     def _ligne(self, nom="", prenom=""):
         r = self.table.rowCount()

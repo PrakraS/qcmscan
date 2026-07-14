@@ -10,6 +10,7 @@ PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS questions (
     id INTEGER PRIMARY KEY,
     chapitre TEXT NOT NULL DEFAULT '',
+    niveau TEXT NOT NULL DEFAULT '',
     enonce TEXT NOT NULL,
     actif INTEGER NOT NULL DEFAULT 1
 );
@@ -24,7 +25,8 @@ CREATE TABLE IF NOT EXISTS reponses (
 
 CREATE TABLE IF NOT EXISTS classes (
     id INTEGER PRIMARY KEY,
-    nom TEXT NOT NULL
+    nom TEXT NOT NULL,
+    niveau TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS eleves (
@@ -126,9 +128,13 @@ def connect(path: Path) -> sqlite3.Connection:
     return con
 
 
+NIVEAUX_DEFAUT = ("Seconde", "1SPE", "1NonSPE", "1TECHNO", "TCOMP", "TSPE")
+
+
 def _migrer(con):
-    """Ajoute aux bases existantes les colonnes apparues depuis leur création
-    (CREATE TABLE IF NOT EXISTS ne modifie pas les tables déjà en place)."""
+    """Ajoute aux bases existantes les colonnes et tables apparues depuis
+    leur création (CREATE TABLE IF NOT EXISTS ne modifie pas les tables
+    déjà en place)."""
     cols = {r[1] for r in con.execute("PRAGMA table_info(sujets)")}
     if "malus_actif" not in cols:
         con.execute("ALTER TABLE sujets ADD COLUMN malus_actif INTEGER "
@@ -136,28 +142,96 @@ def _migrer(con):
         con.execute("ALTER TABLE sujets ADD COLUMN malus REAL "
                     "NOT NULL DEFAULT 0.5")
         con.commit()
+    cols = {r[1] for r in con.execute("PRAGMA table_info(questions)")}
+    if "niveau" not in cols:
+        con.execute("ALTER TABLE questions ADD COLUMN niveau TEXT "
+                    "NOT NULL DEFAULT ''")
+        con.execute("ALTER TABLE classes ADD COLUMN niveau TEXT "
+                    "NOT NULL DEFAULT ''")
+        con.commit()
+    if not con.execute("SELECT 1 FROM sqlite_master WHERE type='table' "
+                       "AND name='niveaux'").fetchone():
+        # catalogue des niveaux proposés dans les listes déroulantes ;
+        # une question garde son niveau même s'il quitte le catalogue
+        con.execute("CREATE TABLE niveaux ("
+                    "nom TEXT PRIMARY KEY, ordre INTEGER NOT NULL)")
+        for i, nom in enumerate(NIVEAUX_DEFAUT):
+            con.execute("INSERT INTO niveaux VALUES(?,?)", (nom, i))
+        con.commit()
+
+
+# ----------------------------------------------------------------- niveaux
+
+def liste_niveaux(con):
+    """Catalogue ordonné, complété des niveaux encore portés par des
+    questions actives (un niveau retiré du catalogue reste visible tant
+    que des questions le portent)."""
+    cat = [r["nom"] for r in con.execute(
+        "SELECT nom FROM niveaux ORDER BY ordre, nom")]
+    portes = [r["niveau"] for r in con.execute(
+        "SELECT DISTINCT niveau FROM questions WHERE actif=1 "
+        "AND niveau<>'' ORDER BY niveau")]
+    return cat + [n for n in portes if n not in cat]
+
+
+def ajouter_niveau(con, nom):
+    nom = (nom or "").strip()
+    if not nom:
+        return
+    con.execute(
+        "INSERT OR IGNORE INTO niveaux(nom, ordre) "
+        "VALUES(?, (SELECT COALESCE(MAX(ordre), -1) + 1 FROM niveaux))",
+        (nom,))
+    con.commit()
+
+
+def supprimer_niveau(con, nom):
+    """Retire le niveau du catalogue ; les questions qui le portent ne
+    sont pas modifiées."""
+    con.execute("DELETE FROM niveaux WHERE nom=?", (nom,))
+    con.commit()
 
 
 # --------------------------------------------------------------- questions
 
-def liste_chapitres(con):
-    rows = con.execute(
-        "SELECT DISTINCT chapitre FROM questions WHERE actif=1 "
-        "ORDER BY chapitre").fetchall()
+def liste_chapitres(con, niveau=None):
+    q = "SELECT DISTINCT chapitre FROM questions WHERE actif=1"
+    args = []
+    if niveau:
+        q += " AND niveau=?"
+        args.append(niveau)
+    rows = con.execute(q + " ORDER BY chapitre", args).fetchall()
     return [r["chapitre"] for r in rows if r["chapitre"]]
 
 
-def liste_questions(con, chapitre=None, recherche=None):
+def liste_questions(con, chapitre=None, recherche=None, niveau=None):
     q = "SELECT * FROM questions WHERE actif=1"
     args = []
+    if niveau:
+        q += " AND niveau=?"
+        args.append(niveau)
     if chapitre:
         q += " AND chapitre=?"
         args.append(chapitre)
     if recherche:
         q += " AND enonce LIKE ?"
         args.append(f"%{recherche}%")
-    q += " ORDER BY chapitre, id"
+    q += " ORDER BY niveau, chapitre, id"
     return con.execute(q, args).fetchall()
+
+
+def usages_questions(con):
+    """question_id -> liste des sujets où elle figure (titre, classe,
+    niveau de la classe, date), pour les indicateurs « déjà utilisée »."""
+    out = {}
+    for r in con.execute(
+            "SELECT sq.question_id AS qid, s.titre, s.date_creation,"
+            "       s.classe_id, c.nom AS classe, c.niveau "
+            "FROM sujet_questions sq "
+            "JOIN sujets s ON s.id = sq.sujet_id "
+            "JOIN classes c ON c.id = s.classe_id ORDER BY s.id"):
+        out.setdefault(r["qid"], []).append(r)
+    return out
 
 
 def reponses_de(con, question_id):
@@ -166,22 +240,26 @@ def reponses_de(con, question_id):
         (question_id,)).fetchall()
 
 
-def sauver_question(con, qid, chapitre, enonce, reponses):
+def sauver_question(con, qid, chapitre, enonce, reponses, niveau=""):
     """reponses : liste de (texte, correcte). Retourne l'id.
 
     Les réponses existantes sont modifiées en place quand leur nombre ne
     change pas : les copies déjà générées référencent leurs ids
     (copie_reponses, cases), qu'un DELETE violerait.
     """
+    niveau = (niveau or "").strip()
+    if niveau:
+        ajouter_niveau(con, niveau)   # un niveau tapé rejoint le catalogue
     if qid is None:
         cur = con.execute(
-            "INSERT INTO questions(chapitre, enonce) VALUES(?,?)",
-            (chapitre, enonce))
+            "INSERT INTO questions(chapitre, niveau, enonce) VALUES(?,?,?)",
+            (chapitre, niveau, enonce))
         qid = cur.lastrowid
         anciennes = []
     else:
-        con.execute("UPDATE questions SET chapitre=?, enonce=? WHERE id=?",
-                    (chapitre, enonce, qid))
+        con.execute(
+            "UPDATE questions SET chapitre=?, niveau=?, enonce=? WHERE id=?",
+            (chapitre, niveau, enonce, qid))
         anciennes = reponses_de(con, qid)
     if len(anciennes) == len(reponses):
         for old, (i, (texte, correcte)) in zip(anciennes,
@@ -239,11 +317,12 @@ def detruire_question(con, qid):
     con.commit()
 
 
-def exporter_questions(con, chapitre=None, recherche=None):
+def exporter_questions(con, chapitre=None, recherche=None, niveau=None):
     """Banque (filtrée) sous forme de liste de dicts sérialisables JSON."""
     out = []
-    for q in liste_questions(con, chapitre, recherche):
+    for q in liste_questions(con, chapitre, recherche, niveau):
         out.append({
+            "niveau": q["niveau"],
             "chapitre": q["chapitre"],
             "enonce": q["enonce"],
             "reponses": [{"texte": r["texte"],
@@ -253,13 +332,13 @@ def exporter_questions(con, chapitre=None, recherche=None):
     return out
 
 
-def parser_questions_texte(texte, chapitre_defaut=""):
+def parser_questions_texte(texte, chapitre_defaut="", niveau_defaut=""):
     """Convertit le format texte « collable » en liste pour importer_questions.
 
     Un bloc par question, blocs séparés par une ligne vide :
 
-        [Chapitre]                        (facultatif)
-        Énoncé, éventuellement sur
+        [Niveau | Chapitre]               (facultatif ; « [Chapitre] » seul
+        Énoncé, éventuellement sur         fonctionne aussi)
         plusieurs lignes. LaTeX autorisé.
         * bonne réponse
         - autre réponse
@@ -272,9 +351,13 @@ def parser_questions_texte(texte, chapitre_defaut=""):
     blocs = [b for b in re.split(r"\n\s*\n", texte.strip()) if b.strip()]
     for i, bloc in enumerate(blocs, start=1):
         lignes = bloc.strip().splitlines()
-        chapitre = chapitre_defaut
+        chapitre, niveau = chapitre_defaut, niveau_defaut
         if lignes and re.fullmatch(r"\[.+\]", lignes[0].strip()):
-            chapitre = lignes[0].strip()[1:-1].strip()
+            entete = lignes[0].strip()[1:-1]
+            if "|" in entete:
+                niveau, chapitre = (s.strip() for s in entete.split("|", 1))
+            else:
+                chapitre = entete.strip()
             lignes = lignes[1:]
         enonce, reponses = [], []
         for ligne in lignes:
@@ -290,7 +373,7 @@ def parser_questions_texte(texte, chapitre_defaut=""):
             raise ValueError(
                 f"Bloc {i} : il faut un énoncé puis les réponses, "
                 "« * » ou « - » suivi d'une espace en début de ligne.")
-        questions.append({"chapitre": chapitre,
+        questions.append({"niveau": niveau, "chapitre": chapitre,
                           "enonce": "\n".join(enonce).strip(),
                           "reponses": reponses})
     if not questions:
@@ -311,6 +394,7 @@ def importer_questions(con, data):
     for i, q in enumerate(data, start=1):
         try:
             chapitre = str(q.get("chapitre", "")).strip()
+            niveau = str(q.get("niveau", "")).strip()
             enonce = str(q["enonce"]).strip()
             reponses = [(str(r["texte"]), bool(r.get("correcte")))
                         for r in q["reponses"]]
@@ -325,13 +409,16 @@ def importer_questions(con, data):
                              "bonne réponse.")
         existe = con.execute(
             "SELECT 1 FROM questions WHERE actif=1 AND chapitre=? "
-            "AND enonce=? LIMIT 1", (chapitre, enonce)).fetchone()
+            "AND niveau=? AND enonce=? LIMIT 1",
+            (chapitre, niveau, enonce)).fetchone()
         if existe:
             ignorees += 1
             continue
+        if niveau:
+            ajouter_niveau(con, niveau)
         cur = con.execute(
-            "INSERT INTO questions(chapitre, enonce) VALUES(?,?)",
-            (chapitre, enonce))
+            "INSERT INTO questions(chapitre, niveau, enonce) VALUES(?,?,?)",
+            (chapitre, niveau, enonce))
         for j, (texte, correcte) in enumerate(reponses):
             con.execute(
                 "INSERT INTO reponses(question_id, texte, correcte, ordre) "
