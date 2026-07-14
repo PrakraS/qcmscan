@@ -199,12 +199,23 @@ class CorrectionPage(QWidget):
         self.histogramme = HistogrammeNotes()
         slay.addWidget(self.histogramme, 1)
         onglets.addTab(synthese, "Synthèse")
+        stats_tab = QWidget()
+        stlay = QVBoxLayout(stats_tab)
+        note = QLabel(
+            "Les questions sont mélangées différemment sur chaque copie : "
+            "le N° renvoie à l'ordre du sujet (onglet Sujets), pas à la "
+            "numérotation d'une copie. Fiez-vous à l'énoncé.")
+        note.setObjectName("sousTitre")
+        note.setWordWrap(True)
+        stlay.addWidget(note)
         self.t_stats = QTableWidget(0, 6)
         self.t_stats.setHorizontalHeaderLabels(
-            ["N°", "Chapitre", "Réussite", "Faux", "Blancs", "Énoncé"])
+            ["N° sujet", "Chapitre", "Réussite", "Faux", "Blancs",
+             "Énoncé"])
         self.t_stats.horizontalHeader().setStretchLastSection(True)
         self.t_stats.setEditTriggers(QTableWidget.NoEditTriggers)
-        onglets.addTab(self.t_stats, "Statistiques par question")
+        stlay.addWidget(self.t_stats, 1)
+        onglets.addTab(stats_tab, "Statistiques par question")
         racine.addWidget(onglets, 1)
 
         self.refresh()
