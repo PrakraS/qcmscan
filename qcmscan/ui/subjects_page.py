@@ -217,7 +217,9 @@ class SubjectsPage(QWidget):
             s = self.con.execute(
                 "SELECT etat, classe_id FROM sujets WHERE id=?",
                 (self.sujet_id,)).fetchone()
-            if s and s["etat"] == "genere":
+            if s is None:
+                return               # sujet supprimé : rien à sauver
+            if s["etat"] == "genere":
                 en_base = {r["question_id"] for r in self.con.execute(
                     "SELECT question_id FROM sujet_questions "
                     "WHERE sujet_id=?", (self.sujet_id,))}
@@ -561,6 +563,7 @@ class SubjectsPage(QWidget):
             return
         if confirmer(self, "Supprimer",
                      "Supprimer ce sujet, ses copies et ses corrections ?"):
+            self._autosave.stop()
             self.con.execute("DELETE FROM sujets WHERE id=?",
                              (self.sujet_id,))
             self.con.commit()
