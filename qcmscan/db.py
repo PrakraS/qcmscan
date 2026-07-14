@@ -45,7 +45,19 @@ CREATE TABLE IF NOT EXISTS sujets (
     coef_actifs INTEGER NOT NULL DEFAULT 0,
     malus_actif INTEGER NOT NULL DEFAULT 0,  -- points négatifs si faux
     malus REAL NOT NULL DEFAULT 0.5,
-    etat TEXT NOT NULL DEFAULT 'brouillon'   -- brouillon | genere
+    etat TEXT NOT NULL DEFAULT 'brouillon',  -- brouillon | genere
+    date_generation TEXT,            -- suivi du cycle de vie
+    date_scan TEXT,
+    date_correction TEXT,
+    mode_correction TEXT             -- auto | manuel (dernier calcul)
+);
+
+-- Dernières notes calculées (archivées à chaque « Calculer »).
+CREATE TABLE IF NOT EXISTS resultats (
+    copie_id INTEGER PRIMARY KEY REFERENCES copies(id) ON DELETE CASCADE,
+    note REAL NOT NULL,
+    total REAL NOT NULL,
+    note20 REAL NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS sujet_questions (
@@ -154,6 +166,12 @@ def _migrer(con):
     if "ratio_ext" not in cols:
         con.execute("ALTER TABLE mesures ADD COLUMN ratio_ext REAL "
                     "NOT NULL DEFAULT 0")
+        con.commit()
+    cols = {r[1] for r in con.execute("PRAGMA table_info(sujets)")}
+    if "date_generation" not in cols:
+        for c in ("date_generation", "date_scan", "date_correction",
+                  "mode_correction"):
+            con.execute(f"ALTER TABLE sujets ADD COLUMN {c} TEXT")
         con.commit()
     if not con.execute("SELECT 1 FROM sqlite_master WHERE type='table' "
                        "AND name='niveaux'").fetchone():

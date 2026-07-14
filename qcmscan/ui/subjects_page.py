@@ -176,9 +176,12 @@ class SubjectsPage(QWidget):
                                on_click=lambda: self._ouvrir("main.pdf"))
         self.b_corrige = bouton("Ouvrir le corrigé",
                                 on_click=lambda: self._ouvrir("corrige.pdf"))
+        self.b_dossier = bouton("Ouvrir le dossier",
+                                on_click=lambda: self._ouvrir(""))
         dlay.addWidget(ligne_boutons(
             bouton("Enregistrer le sujet", on_click=self.enregistrer),
-            self.b_generer, self.b_copies, self.b_corrige))
+            self.b_generer, self.b_copies, self.b_corrige,
+            self.b_dossier))
         split.addWidget(droite)
         split.setSizes([260, 720])
 
@@ -246,9 +249,8 @@ class SubjectsPage(QWidget):
         for s in self.con.execute(
                 "SELECT s.*, c.nom AS classe_nom FROM sujets s "
                 "JOIN classes c ON c.id = s.classe_id ORDER BY s.id DESC"):
-            etat = "généré" if s["etat"] == "genere" else "brouillon"
             it = QListWidgetItem(
-                f"{s['titre']}  —  {s['classe_nom']}  [{etat}]")
+                f"{s['titre']}  —  {s['classe_nom']}  [{self._cycle(s)}]")
             it.setData(Qt.UserRole, s["id"])
             self.liste.addItem(it)
             if s["id"] == sid:
@@ -275,6 +277,28 @@ class SubjectsPage(QWidget):
         self.filtre_niveau.blockSignals(False)
         self._niveau_change()
         self._maj_boutons()
+
+    @staticmethod
+    def _fmt_date(d):
+        return f" {d[8:10]}/{d[5:7]}" if d and len(d) >= 10 else ""
+
+    def _cycle(self, s):
+        """Étapes du cycle de vie pour la liste des sujets."""
+        if s["etat"] != "genere":
+            return "brouillon"
+        etapes = ["généré" + self._fmt_date(s["date_generation"])]
+        if s["date_scan"]:
+            etapes.append("scanné" + self._fmt_date(s["date_scan"]))
+        if s["date_correction"]:
+            txt = "corrigé" + self._fmt_date(s["date_correction"])
+            moy = self.con.execute(
+                "SELECT AVG(r.note20) m FROM resultats r "
+                "JOIN copies c ON c.id = r.copie_id "
+                "WHERE c.sujet_id=?", (s["id"],)).fetchone()["m"]
+            if moy is not None:
+                txt += " · moy. " + f"{moy:.1f}".replace(".", ",") + "/20"
+            etapes.append(txt)
+        return " · ".join(etapes)
 
     def _niveau_valeur(self):
         n = self.filtre_niveau.currentText()
@@ -552,10 +576,11 @@ class SubjectsPage(QWidget):
             genere = bool(s and s["etat"] == "genere")
         self.b_copies.setEnabled(genere)
         self.b_corrige.setEnabled(genere)
+        self.b_dossier.setEnabled(self.sujet_id is not None)
 
     def _ouvrir(self, nom):
         if self.sujet_id is not None:
-            ouvrir_fichier(subject_dir(self.sujet_id) / nom)
+            ouvrir_fichier(subject_dir(self.con, self.sujet_id) / nom)
 
     def generer(self):
         self._autosave.stop()

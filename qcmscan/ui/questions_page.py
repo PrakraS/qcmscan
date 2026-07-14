@@ -148,7 +148,7 @@ class QuestionsPage(QWidget):
         elay.addWidget(bouton("Ajouter une réponse",
                               on_click=lambda: self.ajouter_reponse()))
 
-        lbl = QLabel("APERÇU  (se met à jour en cours de frappe)")
+        lbl = QLabel("APERÇU")
         lbl.setProperty("role", "section")
         elay.addWidget(lbl)
         self.apercu_img = QLabel()

@@ -244,7 +244,7 @@ def generer_sujet(con, sujet_id, progress=None):
             progress(msg)
 
     pdflatex = trouver_pdflatex(con)
-    workdir = subject_dir(sujet_id)
+    workdir = subject_dir(con, sujet_id)
     say("Préparation des copies…")
     source, plan = construire_tex(con, sujet_id)
     (workdir / "main.tex").write_text(source, encoding="utf-8")
@@ -305,7 +305,10 @@ def generer_sujet(con, sujet_id, progress=None):
                     "INSERT INTO cases(copie_id, question_id, reponse_id,"
                     " page, x_mm, y_mm, taille_mm) VALUES(?,?,?,?,?,?,?)",
                     (cid, qid, r["id"], page_loc, x_mm, y_top, C.CASE_MM))
-    con.execute("UPDATE sujets SET etat='genere' WHERE id=?", (sujet_id,))
+    con.execute("UPDATE sujets SET etat='genere', "
+                "date_generation=date('now','localtime'), "
+                "date_scan=NULL, date_correction=NULL WHERE id=?",
+                (sujet_id,))
     con.commit()
 
     say("Corrigé maître…")

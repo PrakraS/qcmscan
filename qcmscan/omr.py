@@ -254,4 +254,8 @@ def analyser_pdfs(con, sujet_id, pdf_paths, progress=None):
             rapport["pages_ok"] += 1
             say(f"{ref} : copie {num}, page {page} analysée")
         con.commit()
+    if rapport["pages_ok"]:
+        con.execute("UPDATE sujets SET date_scan=date('now','localtime') "
+                    "WHERE id=?", (sujet_id,))
+        con.commit()
     return rapport

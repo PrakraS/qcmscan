@@ -106,9 +106,14 @@ autres cas (deux cases nettes, tout entouré…), la question reste
 
 ## Données
 
-- Les copies et corrigés générés (`main.pdf`, `corrige.pdf`) sont écrits
-  dans le dossier `sujets\` **à côté de l'application** (un sous-dossier
-  par sujet), faciles à retrouver pour l'impression.
+- Chaque sujet a son dossier parlant dans `sujets\` **à côté de
+  l'application** : `sujets\0003 - Suites - 1G3\` contient `main.pdf`,
+  `corrige.pdf` et un sous-dossier `exports\` où partent automatiquement
+  les exports datés (notes, Pronote, copies annotées, statistiques).
+  Bouton « Ouvrir le dossier » dans l'onglet Sujets.
+- La liste des sujets affiche le cycle de vie : brouillon → généré le …
+  → scanné le … → corrigé (avec la moyenne). Les notes calculées sont
+  archivées en base : l'onglet Correction les réaffiche à l'ouverture.
 - La base SQLite et les pages scannées redressées restent dans
   `%APPDATA%\QCMScan\`.
 

@@ -1,6 +1,7 @@
 """Correction : analyse des PDF scannés, révision, résultats, exports."""
 
 import statistics
+from datetime import date
 from pathlib import Path
 
 from PySide6.QtCore import Qt
@@ -13,6 +14,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QFileDialog,
 
 from .. import db, exports, grading
 from ..omr import analyser_pdfs
+from ..paths import subject_dir
 from . import theme
 from .widgets import (Worker, bouton, entete, erreur, info, ligne_boutons,
                       ouvrir_fichier)
@@ -135,6 +137,7 @@ class CorrectionPage(QWidget):
         super().__init__()
         self.con = con
         self.resultats = None
+        self._sid_calcule = None
 
         racine = QVBoxLayout(self)
         racine.addWidget(entete(
@@ -239,6 +242,17 @@ class CorrectionPage(QWidget):
 
     def _sujet_change(self, *_):
         self._maj_boutons()
+        sid = self.sujet.currentData()
+        if sid is None or sid == self._sid_calcule:
+            return
+        # ré-affiche automatiquement les derniers résultats calculés
+        s = self.con.execute(
+            "SELECT date_correction, mode_correction FROM sujets "
+            "WHERE id=?", (sid,)).fetchone()
+        if s and s["date_correction"] and self.b_calculer.isEnabled():
+            (self.mode_manuel if s["mode_correction"] == "manuel"
+             else self.mode_auto).setChecked(True)
+            self.calculer()
 
     def _maj_boutons(self):
         sid = self.sujet.currentData()
@@ -313,6 +327,22 @@ class CorrectionPage(QWidget):
         mode = "auto" if self.mode_auto.isChecked() else "manuel"
         self.resultats = grading.corriger_sujet(self.con, sid, mode)
         self.stats = grading.stats_questions(self.con, sid, self.resultats)
+        self._sid_calcule = sid
+
+        # archive les notes : ré-affichées à la prochaine ouverture,
+        # et moyenne visible dans la liste des sujets
+        self.con.execute(
+            "DELETE FROM resultats WHERE copie_id IN "
+            "(SELECT id FROM copies WHERE sujet_id=?)", (sid,))
+        for r in self.resultats:
+            self.con.execute(
+                "INSERT INTO resultats(copie_id, note, total, note20) "
+                "VALUES(?,?,?,?)",
+                (r["copie_id"], r["note"], r["total"], r["note20"]))
+        self.con.execute(
+            "UPDATE sujets SET date_correction=date('now','localtime'),"
+            " mode_correction=? WHERE id=?", (mode, sid))
+        self.con.commit()
 
         self.t_notes.setRowCount(0)
         for res in sorted(self.resultats,
@@ -392,12 +422,9 @@ class CorrectionPage(QWidget):
             bouton("Annuler", None, dlg.reject)))
         if dlg.exec() != QDialog.Accepted:
             return
-        dossier = QFileDialog.getExistingDirectory(
-            self, "Dossier de destination")
-        if not dossier:
-            return
         sid = self.sujet.currentData()
-        base = Path(dossier)
+        base = subject_dir(self.con, sid) / "exports"
+        base.mkdir(exist_ok=True)
         self.b_exporter.setEnabled(False)
         self._worker = Worker(self._exporter_fn, sid, base,
                               {k: c.isChecked() for k, c in cases.items()})
@@ -407,27 +434,24 @@ class CorrectionPage(QWidget):
         self._worker.start()
 
     def _exporter_fn(self, sid, base, choix, progress=None):
-        s = self.con.execute("SELECT titre FROM sujets WHERE id=?",
-                             (sid,)).fetchone()
-        slug = "".join(ch if ch.isalnum() else "_"
-                       for ch in s["titre"]).strip("_") or f"sujet_{sid}"
+        jour = date.today().isoformat()
         faits = []
         if choix["csv"]:
             progress("Export CSV…")
             faits.append(exports.export_csv_notes(
-                self.resultats, base / f"notes_{slug}.csv"))
+                self.resultats, base / f"notes_{jour}.csv"))
         if choix["pronote"]:
             progress("Export Pronote…")
             faits.append(exports.export_pronote(
-                self.resultats, base / f"pronote_{slug}.csv"))
+                self.resultats, base / f"pronote_{jour}.csv"))
         if choix["stats"]:
             progress("Export statistiques…")
             faits.append(exports.export_stats(
-                self.stats, base / f"stats_{slug}.csv"))
+                self.stats, base / f"stats_{jour}.csv"))
         if choix["pdf"]:
             progress("Copies annotées…")
             faits.append(exports.export_pdf_annotes(
-                self.con, self.resultats, base / f"copies_{slug}.pdf"))
+                self.con, self.resultats, base / f"copies_{jour}.pdf"))
         return base, faits
 
     def _export_ok(self, res):
