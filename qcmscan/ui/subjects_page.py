@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox,
                                QVBoxLayout, QWidget)
 
 from .. import db
-from ..latexgen import generer_sujet
+from ..latexgen import apercu_temoin, generer_sujet
 from ..paths import subject_dir
 from . import theme
 from .widgets import (ROLE_BADGE, ROLE_META, ListeDeuxLignes, Worker,
@@ -88,6 +88,7 @@ class SubjectsPage(QWidget):
         glay.addWidget(self.liste, 1)
         glay.addWidget(ligne_boutons(
             bouton("Nouveau sujet", "primaire", self.nouveau),
+            bouton("Dupliquer", on_click=self.dupliquer),
             bouton("Supprimer", "danger", self.supprimer)))
         split.addWidget(gauche)
 
@@ -188,9 +189,13 @@ class SubjectsPage(QWidget):
         self.a_dossier = menu.addAction(
             "Le dossier du sujet", lambda: self._ouvrir(""))
         self.b_ouvrir.setMenu(menu)
+        self.b_temoin = bouton("Copie témoin", on_click=self.copie_temoin)
+        self.b_temoin.setToolTip(
+            "Compile une copie d'exemple non nominative pour vérifier "
+            "la mise en page avant de générer toutes les copies.")
         dlay.addWidget(ligne_boutons(
             bouton("Enregistrer le sujet", on_click=self.enregistrer),
-            self.b_generer, self.b_ouvrir))
+            self.b_temoin, self.b_generer, self.b_ouvrir))
         split.addWidget(droite)
         split.setSizes([260, 720])
 
@@ -569,6 +574,54 @@ class SubjectsPage(QWidget):
         if not silencieux:
             self.refresh()
         return self.sujet_id
+
+    def dupliquer(self):
+        """Nouveau brouillon avec les mêmes questions et le même barème,
+        prêt à changer de classe."""
+        if self.sujet_id is None:
+            return
+        self._autosave.stop()
+        self.auto_enregistrer()
+        s = self.con.execute("SELECT * FROM sujets WHERE id=?",
+                             (self.sujet_id,)).fetchone()
+        cur = self.con.execute(
+            "INSERT INTO sujets(titre, classe_id, points_defaut,"
+            " coef_actifs, malus_actif, malus) VALUES(?,?,?,?,?,?)",
+            (s["titre"] + " (copie)", s["classe_id"], s["points_defaut"],
+             s["coef_actifs"], s["malus_actif"], s["malus"]))
+        nid = cur.lastrowid
+        self.con.execute(
+            "INSERT INTO sujet_questions(sujet_id, question_id, ordre,"
+            " points) SELECT ?, question_id, ordre, points "
+            "FROM sujet_questions WHERE sujet_id=?", (nid, self.sujet_id))
+        self.con.commit()
+        self.refresh()
+        for r in range(self.liste.count()):     # charge le duplicata
+            if self.liste.item(r).data(Qt.UserRole) == nid:
+                self.liste.setCurrentRow(r)
+                break
+
+    def copie_temoin(self):
+        sid = self.enregistrer(silencieux=True)
+        if sid is None:
+            return
+        self.b_temoin.setEnabled(False)
+        self.etat.setText("Compilation de la copie témoin…")
+        self._worker_temoin = Worker(
+            lambda progress=None: apercu_temoin(self.con, sid))
+        self._worker_temoin.done.connect(self._temoin_ok)
+        self._worker_temoin.error.connect(self._temoin_err)
+        self._worker_temoin.start()
+
+    def _temoin_ok(self, pdf):
+        self.b_temoin.setEnabled(True)
+        self.etat.setText("")
+        ouvrir_fichier(pdf)
+
+    def _temoin_err(self, msg):
+        self.b_temoin.setEnabled(True)
+        self.etat.setText("Échec de la copie témoin.")
+        erreur(self, "Copie témoin", msg)
 
     def supprimer(self):
         if self.sujet_id is None:

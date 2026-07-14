@@ -91,6 +91,7 @@ class QuestionsPage(QWidget):
         menu.addAction("Exporter la banque…", self.exporter)
         menu.addAction("Importer un fichier…", self.importer)
         menu.addSeparator()
+        menu.addAction("Renommer un chapitre…", self.renommer_chapitre)
         menu.addAction("Corbeille…", self.corbeille)
         outils.setMenu(menu)
         outils.setPopupMode(QToolButton.InstantPopup)
@@ -511,6 +512,47 @@ class QuestionsPage(QWidget):
             bouton("Restaurer", "primaire", restaurer),
             bouton("Supprimer définitivement", "danger", detruire),
             bouton("Fermer", on_click=dlg.accept)))
+        dlg.exec()
+
+    def renommer_chapitre(self):
+        """Renomme un chapitre partout (fusion si le nom existe déjà)."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Renommer un chapitre")
+        lay = QVBoxLayout(dlg)
+        aide = QLabel("Toutes les questions du chapitre (corbeille "
+                      "comprise) sont déplacées. Donner le nom d'un "
+                      "chapitre existant fusionne les deux.")
+        aide.setWordWrap(True)
+        aide.setObjectName("sousTitre")
+        lay.addWidget(aide)
+        lig = QHBoxLayout()
+        ancien = QComboBox()
+        ancien.addItems(db.liste_chapitres(self.con))
+        nouveau = QLineEdit()
+        nouveau.setPlaceholderText("Nouveau nom…")
+        lig.addWidget(ancien, 1)
+        lig.addWidget(QLabel("→"))
+        lig.addWidget(nouveau, 1)
+        lay.addLayout(lig)
+
+        def valider():
+            a, n = ancien.currentText(), nouveau.text().strip()
+            if not a or not n or a == n:
+                return
+            existants = db.liste_chapitres(self.con)
+            if n in existants and not confirmer(
+                    dlg, "Fusionner",
+                    f"« {n} » existe déjà : fusionner « {a} » dedans ?"):
+                return
+            nb = db.renommer_chapitre(self.con, a, n)
+            self.refresh()
+            info(dlg, "Chapitre renommé",
+                 f"{nb} question(s) déplacée(s) de « {a} » vers « {n} ».")
+            dlg.accept()
+
+        lay.addWidget(ligne_boutons(
+            bouton("Renommer", "primaire", valider),
+            bouton("Annuler", on_click=dlg.reject)))
         dlg.exec()
 
     # ---------------------------------------------------- export / import

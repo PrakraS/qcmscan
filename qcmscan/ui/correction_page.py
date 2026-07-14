@@ -370,6 +370,11 @@ class CorrectionPage(QWidget):
         if rapport["autre_sujet"]:
             msg.append(f"{rapport['autre_sujet']} page(s) d'un autre sujet "
                        "ignorée(s).")
+        if rapport.get("autre_generation"):
+            msg.append(
+                f"⚠ {rapport['autre_generation']} page(s) d'une "
+                "génération antérieure du sujet ignorée(s) : le sujet a "
+                "été régénéré depuis l'impression de ces copies.")
         if rapport["pages_ignorees"]:
             details = " ; ".join(f"{ref} ({raison})" for ref, raison
                                  in rapport["pages_ignorees"][:8])

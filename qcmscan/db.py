@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS sujets (
     malus_actif INTEGER NOT NULL DEFAULT 0,  -- points négatifs si faux
     malus REAL NOT NULL DEFAULT 0.5,
     etat TEXT NOT NULL DEFAULT 'brouillon',  -- brouillon | genere
+    generation INTEGER NOT NULL DEFAULT 0,   -- n° de génération (QR)
     date_generation TEXT,            -- suivi du cycle de vie
     date_scan TEXT,
     date_correction TEXT,
@@ -173,6 +174,11 @@ def _migrer(con):
                   "mode_correction"):
             con.execute(f"ALTER TABLE sujets ADD COLUMN {c} TEXT")
         con.commit()
+    cols = {r[1] for r in con.execute("PRAGMA table_info(sujets)")}
+    if "generation" not in cols:
+        con.execute("ALTER TABLE sujets ADD COLUMN generation INTEGER "
+                    "NOT NULL DEFAULT 0")
+        con.commit()
     if not con.execute("SELECT 1 FROM sqlite_master WHERE type='table' "
                        "AND name='niveaux'").fetchone():
         # catalogue des niveaux proposés dans les listes déroulantes ;
@@ -226,6 +232,19 @@ def liste_chapitres(con, niveau=None):
         args.append(niveau)
     rows = con.execute(q + " ORDER BY chapitre", args).fetchall()
     return [r["chapitre"] for r in rows if r["chapitre"]]
+
+
+def renommer_chapitre(con, ancien, nouveau, niveau=None):
+    """Renomme un chapitre (fusion naturelle si le nouveau nom existe).
+    Touche aussi la corbeille. Retourne le nombre de questions modifiées."""
+    q = "UPDATE questions SET chapitre=? WHERE chapitre=?"
+    args = [nouveau, ancien]
+    if niveau:
+        q += " AND niveau=?"
+        args.append(niveau)
+    cur = con.execute(q, args)
+    con.commit()
+    return cur.rowcount
 
 
 def liste_questions(con, chapitre=None, recherche=None, niveau=None):

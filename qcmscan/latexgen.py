@@ -264,16 +264,23 @@ def generer_sujet(con, sujet_id, progress=None):
     source, plan = construire_tex(con, sujet_id)
     (workdir / "main.tex").write_text(source, encoding="utf-8")
 
+    # numéro de génération : porté par chaque QR, il permet de rejeter
+    # les scans de copies imprimées avant une régénération
+    generation = con.execute(
+        "SELECT generation FROM sujets WHERE id=?",
+        (sujet_id,)).fetchone()["generation"] + 1
+
     say("Génération des QR codes…")
     qrdir = workdir / "qr"
-    qrdir.mkdir(exist_ok=True)
+    shutil.rmtree(qrdir, ignore_errors=True)   # jamais de QR périmés
+    qrdir.mkdir()
     for copie in plan:
         n = copie["numero"]
         for p in range(1, C.QR_MAX_PAGES + 1):
-            f = qrdir / f"c{n}-p{p}.png"
-            if not f.exists():
-                segno.make(f"{C.QR_PREFIX}|{sujet_id}|{n}|{p}",
-                           error="m").save(str(f), scale=10, border=2)
+            segno.make(
+                f"{C.QR_PREFIX}|{sujet_id}|{n}|{p}|{generation}",
+                error="m").save(str(qrdir / f"c{n}-p{p}.png"),
+                                scale=10, border=2)
 
     say("Compilation pdflatex (2 passes)…")
     _run_pdflatex(pdflatex, workdir, "main.tex")
@@ -320,10 +327,10 @@ def generer_sujet(con, sujet_id, progress=None):
                     "INSERT INTO cases(copie_id, question_id, reponse_id,"
                     " page, x_mm, y_mm, taille_mm) VALUES(?,?,?,?,?,?,?)",
                     (cid, qid, r["id"], page_loc, x_mm, y_top, C.CASE_MM))
-    con.execute("UPDATE sujets SET etat='genere', "
+    con.execute("UPDATE sujets SET etat='genere', generation=?, "
                 "date_generation=date('now','localtime'), "
                 "date_scan=NULL, date_correction=NULL WHERE id=?",
-                (sujet_id,))
+                (generation, sujet_id))
     con.commit()
 
     say("Corrigé maître…")
@@ -376,6 +383,55 @@ def generer_corrige(con, sujet_id, workdir: Path, pdflatex):
 
 
 # ------------------------------------------------------------- aperçu
+
+def apercu_temoin(con, sujet_id, progress=None) -> Path:
+    """Compile une copie témoin non nominative (mise en page identique
+    aux vraies copies, questions dans l'ordre du sujet, sans QR) et
+    retourne le chemin du PDF, dans un dossier temporaire."""
+    import tempfile
+
+    pdflatex = trouver_pdflatex(con)
+    sujet = con.execute("SELECT * FROM sujets WHERE id=?",
+                        (sujet_id,)).fetchone()
+    classe = con.execute("SELECT * FROM classes WHERE id=?",
+                         (sujet["classe_id"],)).fetchone()
+    sq = db.questions_du_sujet(con, sujet_id)
+    if not sq:
+        raise LatexError("Le sujet ne contient aucune question.")
+    for q in sq:
+        verifier_texte_question(q["enonce"],
+                                f"L'énoncé de la question {q['id']}")
+        for r in db.reponses_de(con, q["id"]):
+            verifier_texte_question(
+                r["texte"], f"La réponse de la question {q['id']}")
+
+    malus = sujet["malus"] if sujet["malus_actif"] else 0.0
+    parts = [_preambule(), r"\begin{document}",
+             _entete_copie(0, {"nom": "Copie témoin", "prenom": ""},
+                           classe["nom"], sujet["titre"],
+                           sujet["date_creation"], malus=malus)]
+    for pos, q in enumerate(sq, start=1):
+        reps = list(db.reponses_de(con, q["id"]))
+        pts = q["points"] if sujet["coef_actifs"] else sujet["points_defaut"]
+        lignes = [r"\noindent\begin{minipage}{\linewidth}",
+                  rf"{{\bfseries Question {pos}}}\hfill"
+                  rf"{{\small ({fmt_points(pts)})}}\par\vspace{{1mm}}",
+                  q["enonce"], r"\par\vspace{1.5mm}"]
+        for j, r in enumerate(reps):
+            lettre = chr(65 + j)
+            lignes.append(
+                rf"\qcase{{t-q{q['id']}-r{r['id']}}}"
+                rf"~~\textbf{{{lettre}.}}~{r['texte']}"
+                r"\par\vspace{1.2mm}")
+        lignes.append(r"\end{minipage}\par\vspace{4mm}")
+        parts.append("\n".join(lignes))
+    parts.append(r"\end{document}")
+
+    workdir = Path(tempfile.mkdtemp(prefix="qcmscan_temoin_"))
+    (workdir / "temoin.tex").write_text("\n".join(parts), encoding="utf-8")
+    _run_pdflatex(pdflatex, workdir, "temoin.tex")
+    return workdir / "temoin.pdf"
+
 
 def compiler_apercu(con, enonce, reponses, workdir: Path) -> Path:
     """Compile un aperçu PNG d'une question (éditeur de la banque)."""

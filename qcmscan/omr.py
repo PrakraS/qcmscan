@@ -42,22 +42,26 @@ def iter_pages_pdf(pdf_path):
 # ------------------------------------------------------------------- QR
 
 def lire_qr(gray):
-    """Retourne (sujet, copie, page, centre_xy) ou lève PageIgnoree."""
+    """Retourne (sujet, copie, page, generation, centre_xy) ou lève
+    PageIgnoree. generation vaut None pour les copies imprimées avant
+    l'introduction du marquage (QR à quatre champs)."""
     results = zxingcpp.read_barcodes(gray)
     for r in results:
         txt = r.text or ""
         if not txt.startswith(C.QR_PREFIX + "|"):
             continue
         try:
-            _, s, c, p = txt.split("|")
+            champs = txt.split("|")
+            s, c, p = champs[1:4]
+            gen = int(champs[4]) if len(champs) > 4 else None
             pos = r.position
             pts = [(pt.x, pt.y) for pt in
                    (pos.top_left, pos.top_right,
                     pos.bottom_right, pos.bottom_left)]
-            cx = sum(p[0] for p in pts) / 4
-            cy = sum(p[1] for p in pts) / 4
-            return int(s), int(c), int(p), (cx, cy)
-        except (ValueError, AttributeError):
+            cx = sum(q[0] for q in pts) / 4
+            cy = sum(q[1] for q in pts) / 4
+            return int(s), int(c), int(p), gen, (cx, cy)
+        except (ValueError, AttributeError, IndexError):
             continue
     raise PageIgnoree("QR code introuvable ou illisible")
 
@@ -212,7 +216,11 @@ def analyser_pdfs(con, sujet_id, pdf_paths, progress=None):
         "(SELECT id FROM copies WHERE sujet_id=?)", (sujet_id,))
     con.commit()
 
-    rapport = {"pages_ok": 0, "pages_ignorees": [], "autre_sujet": 0}
+    gen_courante = con.execute(
+        "SELECT generation FROM sujets WHERE id=?",
+        (sujet_id,)).fetchone()["generation"]
+    rapport = {"pages_ok": 0, "pages_ignorees": [], "autre_sujet": 0,
+               "autre_generation": 0}
     outdir = scans_dir(sujet_id)
 
     for pdf_path in pdf_paths:
@@ -220,9 +228,12 @@ def analyser_pdfs(con, sujet_id, pdf_paths, progress=None):
         for idx, gray in iter_pages_pdf(pdf_path):
             ref = f"{pdf_path} p.{idx + 1}"
             try:
-                s, num, page, qr_center = lire_qr(gray)
+                s, num, page, gen, qr_center = lire_qr(gray)
                 if s != sujet_id:
                     rapport["autre_sujet"] += 1
+                    continue
+                if gen is not None and gen != gen_courante:
+                    rapport["autre_generation"] += 1
                     continue
                 if num not in copies:
                     raise PageIgnoree(f"copie n°{num} inconnue")
