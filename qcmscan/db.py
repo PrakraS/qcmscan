@@ -209,14 +209,33 @@ def sauver_question(con, qid, chapitre, enonce, reponses):
 
 
 def supprimer_question(con, qid):
-    """Suppression douce si la question est utilisée dans un sujet."""
-    utilisee = con.execute(
-        "SELECT 1 FROM sujet_questions WHERE question_id=? LIMIT 1",
-        (qid,)).fetchone()
-    if utilisee:
-        con.execute("UPDATE questions SET actif=0 WHERE id=?", (qid,))
-    else:
+    """Envoie la question à la corbeille (suppression douce)."""
+    con.execute("UPDATE questions SET actif=0 WHERE id=?", (qid,))
+    con.commit()
+
+
+def questions_corbeille(con):
+    return con.execute(
+        "SELECT * FROM questions WHERE actif=0 ORDER BY chapitre, id"
+    ).fetchall()
+
+
+def restaurer_question(con, qid):
+    con.execute("UPDATE questions SET actif=1 WHERE id=?", (qid,))
+    con.commit()
+
+
+def detruire_question(con, qid):
+    """Suppression définitive ; refusée si un sujet ou des copies y font
+    référence (la question reste alors dans la corbeille)."""
+    try:
         con.execute("DELETE FROM questions WHERE id=?", (qid,))
+    except sqlite3.IntegrityError:
+        con.rollback()
+        raise ValueError(
+            "Cette question est utilisée par un sujet ou des copies "
+            "générées : elle ne peut pas être supprimée définitivement."
+        ) from None
     con.commit()
 
 

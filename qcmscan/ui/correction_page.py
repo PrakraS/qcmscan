@@ -1,9 +1,10 @@
 """Correction : analyse des PDF scannés, révision, résultats, exports."""
 
+import statistics
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QColor, QPainter, QPixmap
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QFileDialog,
                                QHBoxLayout, QLabel, QListWidget,
                                QRadioButton, QScrollArea, QTableWidget,
@@ -12,8 +13,55 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QFileDialog,
 
 from .. import db, exports, grading
 from ..omr import analyser_pdfs
+from . import theme
 from .widgets import (Worker, bouton, entete, erreur, info, ligne_boutons,
                       ouvrir_fichier)
+
+
+class HistogrammeNotes(QWidget):
+    """Répartition des notes sur 20, par tranches de 2 points."""
+
+    def __init__(self):
+        super().__init__()
+        self.notes = []
+        self.setMinimumHeight(240)
+
+    def set_notes(self, notes):
+        self.notes = list(notes)
+        self.update()
+
+    def paintEvent(self, _):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        pal = theme.palette
+        p.fillRect(self.rect(), QColor(pal["surface"]))
+        if not self.notes:
+            p.end()
+            return
+        bins = [0] * 10
+        for n in self.notes:
+            bins[min(int(n // 2), 9)] += 1
+        haut = max(bins)
+        m_g, m_b, m_h = 16, 26, 22
+        w = (self.width() - 2 * m_g) / 10
+        zone_h = self.height() - m_b - m_h
+        p.setPen(QColor(pal["bord"]))
+        p.drawLine(m_g, self.height() - m_b,
+                   self.width() - m_g, self.height() - m_b)
+        for i, n in enumerate(bins):
+            x = m_g + i * w
+            h = zone_h * n / haut if haut else 0
+            y = self.height() - m_b - h
+            if n:
+                p.fillRect(int(x + w * 0.15), int(y),
+                           int(w * 0.7), int(h), QColor(pal["accent"]))
+                p.setPen(QColor(pal["texte"]))
+                p.drawText(int(x), int(y - 18), int(w), 16,
+                           Qt.AlignCenter, str(n))
+            p.setPen(QColor(pal["texte2"]))
+            p.drawText(int(x), self.height() - m_b + 4, int(w), 18,
+                       Qt.AlignCenter, f"{2 * i}–{2 * i + 2}")
+        p.end()
 
 
 class DialogRevision(QDialog):
@@ -134,6 +182,14 @@ class CorrectionPage(QWidget):
         self.t_notes.horizontalHeader().setStretchLastSection(True)
         self.t_notes.setEditTriggers(QTableWidget.NoEditTriggers)
         onglets.addTab(self.t_notes, "Notes")
+        synthese = QWidget()
+        slay = QVBoxLayout(synthese)
+        self.resume = QLabel("Calculez les résultats pour voir la synthèse.")
+        self.resume.setWordWrap(True)
+        slay.addWidget(self.resume)
+        self.histogramme = HistogrammeNotes()
+        slay.addWidget(self.histogramme, 1)
+        onglets.addTab(synthese, "Synthèse")
         self.t_stats = QTableWidget(0, 6)
         self.t_stats.setHorizontalHeaderLabels(
             ["N°", "Chapitre", "Réussite", "Faux", "Blancs", "Énoncé"])
@@ -269,7 +325,24 @@ class CorrectionPage(QWidget):
                     str(s["blanc"]),
                     " ".join(s["enonce"].split())[:80]]
             for c, v in enumerate(vals):
-                self.t_stats.setItem(r, c, QTableWidgetItem(v))
+                it = QTableWidgetItem(v)
+                if c == 2:
+                    t = s["reussite"]
+                    couleur = ("vert" if t >= 2 / 3
+                               else "orange" if t >= 1 / 3 else "rouge")
+                    it.setForeground(QColor(theme.palette[couleur]))
+                self.t_stats.setItem(r, c, it)
+
+        notes20 = [res["note20"] for res in self.resultats]
+        self.histogramme.set_notes(notes20)
+        if notes20:
+            def fr(x):
+                return f"{x:.1f}".rstrip("0").rstrip(".").replace(".", ",")
+            self.resume.setText(
+                f"<b>{len(notes20)} copie(s)</b> — "
+                f"moyenne <b>{fr(statistics.mean(notes20))}/20</b>, "
+                f"médiane {fr(statistics.median(notes20))}, "
+                f"min {fr(min(notes20))}, max {fr(max(notes20))}.")
         self.statut.setText("Résultats calculés.")
         self._maj_boutons()
 

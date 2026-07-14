@@ -1,11 +1,12 @@
 """Banque de questions : liste filtrable + éditeur avec aperçu LaTeX."""
 
+import html
 import json
 import re
 import tempfile
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (QApplication, QButtonGroup, QComboBox,
                                QDialog, QFileDialog, QHBoxLayout, QLabel,
@@ -15,12 +16,14 @@ from PySide6.QtWidgets import (QApplication, QButtonGroup, QComboBox,
 
 from .. import db
 from ..latexgen import compiler_apercu
+from . import theme
 from .widgets import (Worker, bouton, confirmer, entete, erreur, info,
                       ligne_boutons)
 
 
 class LigneReponse(QWidget):
-    def __init__(self, groupe, texte="", correcte=False, on_delete=None):
+    def __init__(self, groupe, texte="", correcte=False, on_delete=None,
+                 on_change=None):
         super().__init__()
         lay = QHBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
@@ -36,6 +39,9 @@ class LigneReponse(QWidget):
         sup.setToolTip("Supprimer cette réponse")
         if on_delete:
             sup.clicked.connect(lambda: on_delete(self))
+        if on_change:
+            self.champ.textChanged.connect(on_change)
+            self.radio.toggled.connect(on_change)
         lay.addWidget(self.radio)
         lay.addWidget(self.champ, 1)
         lay.addWidget(sup)
@@ -67,6 +73,7 @@ class QuestionsPage(QWidget):
         barre.addWidget(bouton("Coller…", on_click=self.coller))
         barre.addWidget(bouton("Exporter…", on_click=self.exporter))
         barre.addWidget(bouton("Importer…", on_click=self.importer))
+        barre.addWidget(bouton("Corbeille…", on_click=self.corbeille))
         racine.addLayout(barre)
 
         split = QSplitter()
@@ -94,6 +101,7 @@ class QuestionsPage(QWidget):
         self.enonce.setPlaceholderText(
             r"Exemple : Soit $f(x) = x^2 + 3x$. Que vaut $f'(x)$ ?")
         self.enonce.setMinimumHeight(90)
+        self.enonce.textChanged.connect(self._programmer_apercu)
         elay.addWidget(self.enonce)
 
         lbl = QLabel("RÉPONSES  (cocher la bonne)")
@@ -107,17 +115,38 @@ class QuestionsPage(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setWidget(conteneur)
-        scroll.setMinimumHeight(140)
-        elay.addWidget(scroll, 1)
+        scroll.setMinimumHeight(120)
+        elay.addWidget(scroll, 2)
         elay.addWidget(bouton("Ajouter une réponse",
                               on_click=lambda: self.ajouter_reponse()))
 
+        lbl = QLabel("APERÇU  (se met à jour en cours de frappe)")
+        lbl.setProperty("role", "section")
+        elay.addWidget(lbl)
+        self.apercu_img = QLabel()
+        self.apercu_img.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        self.apercu_img.setTextFormat(Qt.RichText)
+        self.apercu_scroll = QScrollArea()
+        self.apercu_scroll.setWidgetResizable(True)
+        self.apercu_scroll.setWidget(self.apercu_img)
+        self.apercu_scroll.setMinimumHeight(150)
+        elay.addWidget(self.apercu_scroll, 2)
+
         elay.addWidget(ligne_boutons(
             bouton("Enregistrer", "primaire", self.enregistrer),
-            bouton("Aperçu PDF", on_click=self.apercu),
             bouton("Supprimer", "danger", self.supprimer)))
         split.addWidget(editeur)
         split.setSizes([340, 560])
+
+        # aperçu LaTeX en direct : compilation ~1 s après la dernière frappe
+        self._apercu_dir = Path(tempfile.mkdtemp(prefix="qcmscan_apercu_"))
+        self._apercu_timer = QTimer(self)
+        self._apercu_timer.setSingleShot(True)
+        self._apercu_timer.setInterval(900)
+        self._apercu_timer.timeout.connect(self._lancer_apercu)
+        self._apercu_cle = None
+        self._apercu_encours = False
+        self._apercu_refaire = False
 
         self.refresh()
 
@@ -174,12 +203,14 @@ class QuestionsPage(QWidget):
 
     def ajouter_reponse(self, texte="", correcte=False):
         ligne = LigneReponse(self.groupe, texte, correcte,
-                             on_delete=self.supprimer_reponse)
+                             on_delete=self.supprimer_reponse,
+                             on_change=self._programmer_apercu)
         self.zone_reponses.addWidget(ligne)
 
     def supprimer_reponse(self, ligne):
         self.zone_reponses.removeWidget(ligne)
         ligne.deleteLater()
+        self._programmer_apercu()
 
     def lignes_reponses(self):
         out = []
@@ -230,11 +261,60 @@ class QuestionsPage(QWidget):
         if self.qid is None:
             return
         if not confirmer(self, "Supprimer",
-                         "Supprimer cette question de la banque ?"):
+                         "Envoyer cette question à la corbeille ?\n"
+                         "(restauration possible via le bouton "
+                         "« Corbeille… »)"):
             return
         db.supprimer_question(self.con, self.qid)
         self.nouvelle()
         self.refresh()
+
+    def corbeille(self):
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Corbeille")
+        dlg.resize(620, 420)
+        lay = QVBoxLayout(dlg)
+        liste = QListWidget()
+        liste.setSelectionMode(QListWidget.ExtendedSelection)
+        lay.addWidget(liste, 1)
+
+        def recharger():
+            liste.clear()
+            for q in db.questions_corbeille(self.con):
+                apercu = " ".join(q["enonce"].split())[:70]
+                it = QListWidgetItem(f"[{q['chapitre']}]  {apercu}")
+                it.setData(Qt.UserRole, q["id"])
+                liste.addItem(it)
+
+        def restaurer():
+            for it in liste.selectedItems():
+                db.restaurer_question(self.con, it.data(Qt.UserRole))
+            recharger()
+            self.refresh()
+
+        def detruire():
+            sel = liste.selectedItems()
+            if not sel or not confirmer(
+                    dlg, "Supprimer définitivement",
+                    f"Supprimer définitivement {len(sel)} question(s) ? "
+                    "Cette action est irréversible."):
+                return
+            refus = []
+            for it in sel:
+                try:
+                    db.detruire_question(self.con, it.data(Qt.UserRole))
+                except ValueError as e:
+                    refus.append(str(e))
+            recharger()
+            if refus:
+                erreur(dlg, "Corbeille", refus[0])
+
+        recharger()
+        lay.addWidget(ligne_boutons(
+            bouton("Restaurer", "primaire", restaurer),
+            bouton("Supprimer définitivement", "danger", detruire),
+            bouton("Fermer", on_click=dlg.accept)))
+        dlg.exec()
 
     # ---------------------------------------------------- export / import
     def coller(self):
@@ -323,35 +403,51 @@ class QuestionsPage(QWidget):
                    "et même énoncé qu'une question existante)."
         info(self, "Importer", msg)
 
-    # ------------------------------------------------------------ aperçu
-    def apercu(self):
-        reponses = self.valider()
-        if reponses is None:
+    # ------------------------------------------------------ aperçu direct
+    def _programmer_apercu(self, *_):
+        if hasattr(self, "_apercu_timer"):
+            self._apercu_timer.start()
+
+    def _lancer_apercu(self):
+        enonce = self.enonce.toPlainText().strip()
+        reponses = self.lignes_reponses()
+        if not enonce and not reponses:
+            self.apercu_img.clear()
+            self._apercu_cle = None
             return
-        workdir = Path(tempfile.mkdtemp(prefix="qcmscan_apercu_"))
-        self._worker = Worker(self._apercu_fn,
-                              self.enonce.toPlainText().strip(),
-                              reponses, workdir)
-        self._worker.done.connect(self._apercu_ok)
-        self._worker.error.connect(
-            lambda msg: erreur(self, "Aperçu", msg))
-        self._worker.start()
+        cle = (enonce, tuple(reponses))
+        if cle == self._apercu_cle:
+            return
+        if self._apercu_encours:
+            self._apercu_refaire = True
+            return
+        self._apercu_cle = cle
+        self._apercu_encours = True
+        self._apercu_worker = Worker(self._apercu_fn, enonce, reponses,
+                                     self._apercu_dir)
+        self._apercu_worker.done.connect(self._apercu_ok)
+        self._apercu_worker.error.connect(self._apercu_err)
+        self._apercu_worker.start()
 
     def _apercu_fn(self, enonce, reponses, workdir, progress=None):
         return compiler_apercu(self.con, enonce, reponses, workdir)
 
+    def _apercu_fini(self):
+        self._apercu_encours = False
+        if self._apercu_refaire:
+            self._apercu_refaire = False
+            self._apercu_timer.start()
+
     def _apercu_ok(self, png_path):
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Aperçu de la question")
-        lay = QVBoxLayout(dlg)
-        lbl = QLabel()
+        self._apercu_fini()
         pm = QPixmap(str(png_path))
-        if pm.width() > 900:
-            pm = pm.scaledToWidth(900, Qt.SmoothTransformation)
-        lbl.setPixmap(pm)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setWidget(lbl)
-        lay.addWidget(scroll)
-        dlg.resize(min(pm.width() + 60, 980), min(pm.height() + 80, 700))
-        dlg.exec()
+        largeur = self.apercu_scroll.viewport().width() - 12
+        if largeur > 120 and pm.width() > largeur:
+            pm = pm.scaledToWidth(largeur, Qt.SmoothTransformation)
+        self.apercu_img.setPixmap(pm)
+
+    def _apercu_err(self, msg):
+        self._apercu_fini()
+        self.apercu_img.setText(
+            f"<pre style='color:{theme.palette['rouge']};"
+            f"white-space:pre-wrap'>{html.escape(msg)}</pre>")

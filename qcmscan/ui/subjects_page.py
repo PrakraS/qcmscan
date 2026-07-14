@@ -5,7 +5,8 @@ from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox,
                                QHBoxLayout, QLabel, QLineEdit, QListWidget,
                                QListWidgetItem, QSplitter, QTableWidget,
-                               QTableWidgetItem, QVBoxLayout, QWidget)
+                               QTableWidgetItem, QTableWidgetSelectionRange,
+                               QVBoxLayout, QWidget)
 
 from .. import db
 from ..latexgen import generer_sujet
@@ -13,6 +14,51 @@ from ..paths import subject_dir
 from . import theme
 from .widgets import (Worker, bouton, confirmer, entete, erreur, info,
                       ligne_boutons, ouvrir_fichier)
+
+
+class TableQuestions(QTableWidget):
+    """Questions du sujet : réordonnables à la souris, et la banque peut
+    y déposer des questions par glisser-déposer."""
+
+    def __init__(self, page):
+        super().__init__(0, 3)
+        self.page = page
+        self.setDragEnabled(True)
+        self.setAcceptDrops(True)
+        self.setDropIndicatorShown(True)
+        self.setDragDropMode(QTableWidget.DragDrop)
+
+    def _ligne_cible(self, event):
+        pos = event.position().toPoint()
+        idx = self.indexAt(pos)
+        if not idx.isValid():
+            return self.rowCount()
+        r = idx.row()
+        if pos.y() > self.visualRect(idx).center().y():
+            r += 1
+        return r
+
+    def dragEnterEvent(self, event):
+        if event.source() in (self, self.page.banque):
+            event.acceptProposedAction()
+
+    def dragMoveEvent(self, event):
+        if event.source() in (self, self.page.banque):
+            super().dragMoveEvent(event)   # dessine l'indicateur de dépôt
+            event.acceptProposedAction()
+
+    def dropEvent(self, event):
+        cible = self._ligne_cible(event)
+        if event.source() is self:
+            lignes = sorted({i.row() for i in self.selectedIndexes()})
+            if lignes:
+                self.page.deplacer_vers(lignes, cible)
+        else:
+            self.page.deposer_banque(cible)
+        # CopyAction : la vue source ne doit pas supprimer ses lignes,
+        # la page a déjà tout reconstruit.
+        event.setDropAction(Qt.CopyAction)
+        event.accept()
 
 
 class SubjectsPage(QWidget):
@@ -91,16 +137,17 @@ class SubjectsPage(QWidget):
         colg.addWidget(self.filtre_chap)
         self.banque = QListWidget()
         self.banque.setSelectionMode(QListWidget.ExtendedSelection)
+        self.banque.setDragEnabled(True)
         colg.addWidget(self.banque, 1)
         colg.addWidget(bouton("Ajouter au sujet →",
                               on_click=self.ajouter_questions))
         picker.addLayout(colg, 1)
 
         cold = QVBoxLayout()
-        lbl = QLabel("QUESTIONS DU SUJET")
+        lbl = QLabel("QUESTIONS DU SUJET  (glisser pour réordonner)")
         lbl.setProperty("role", "section")
         cold.addWidget(lbl)
-        self.table = QTableWidget(0, 3)
+        self.table = TableQuestions(self)
         self.table.setHorizontalHeaderLabels(["Chapitre", "Énoncé", "Points"])
         self.table.horizontalHeader().setStretchLastSection(False)
         self.table.setColumnWidth(0, 130)
@@ -250,13 +297,54 @@ class SubjectsPage(QWidget):
         self._style_points(it, self.coefs.isChecked())
         self.table.setItem(r, 2, it)
 
-    def ajouter_questions(self):
-        for it in self.banque.selectedItems():
+    def _donnees_table(self):
+        """(qid, chapitre, enonce, points) pour chaque ligne affichée."""
+        out = []
+        for r in range(self.table.rowCount()):
+            it = self.table.item(r, 0)
+            try:
+                pts = float(self.table.item(r, 2).text().replace(",", "."))
+            except (ValueError, AttributeError):
+                pts = 1.0
+            out.append((it.data(Qt.UserRole), it.text(),
+                        self.table.item(r, 1).text(), pts))
+        return out
+
+    def _remplir_table(self, donnees):
+        self.table.setRowCount(0)
+        for qid, chap, enonce, pts in donnees:
+            self._ligne_question(qid, chap, enonce, pts)
+
+    def deplacer_vers(self, lignes, cible):
+        """Déplace les lignes sélectionnées avant la ligne `cible`."""
+        donnees = self._donnees_table()
+        prises = [donnees[r] for r in lignes]
+        cible -= sum(1 for r in lignes if r < cible)
+        reste = [d for i, d in enumerate(donnees) if i not in set(lignes)]
+        for i, d in enumerate(prises):
+            reste.insert(cible + i, d)
+        self._remplir_table(reste)
+        self.table.clearSelection()
+        self.table.setRangeSelected(
+            QTableWidgetSelectionRange(cible, 0,
+                                       cible + len(prises) - 1, 2), True)
+
+    def deposer_banque(self, cible):
+        """Insère les questions sélectionnées de la banque à la position
+        `cible` (fin de table pour le bouton « Ajouter au sujet »)."""
+        donnees = self._donnees_table()
+        deja = {d[0] for d in donnees}
+        for i, it in enumerate(s for s in self.banque.selectedItems()
+                               if s.data(Qt.UserRole) not in deja):
             qid = it.data(Qt.UserRole)
             q = self.con.execute("SELECT * FROM questions WHERE id=?",
                                  (qid,)).fetchone()
-            self._ligne_question(qid, q["chapitre"], q["enonce"], 1.0)
+            donnees.insert(cible + i, (qid, q["chapitre"], q["enonce"], 1.0))
+        self._remplir_table(donnees)
         self._recharger_banque()
+
+    def ajouter_questions(self):
+        self.deposer_banque(self.table.rowCount())
 
     def retirer_questions(self):
         lignes = sorted({i.row() for i in self.table.selectedIndexes()},
