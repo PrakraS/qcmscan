@@ -4,15 +4,17 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox,
                                QHBoxLayout, QLabel, QLineEdit, QListWidget,
-                               QListWidgetItem, QSplitter, QTableWidget,
-                               QTableWidgetItem, QTableWidgetSelectionRange,
+                               QListWidgetItem, QMenu, QSplitter,
+                               QTableWidget, QTableWidgetItem,
+                               QTableWidgetSelectionRange, QToolButton,
                                QVBoxLayout, QWidget)
 
 from .. import db
 from ..latexgen import generer_sujet
 from ..paths import subject_dir
 from . import theme
-from .widgets import (Worker, bouton, confirmer, entete, erreur, info,
+from .widgets import (ROLE_BADGE, ROLE_META, ListeDeuxLignes, Worker,
+                      bouton, confirmer, entete, erreur, info,
                       ligne_boutons, ouvrir_fichier)
 
 
@@ -81,6 +83,7 @@ class SubjectsPage(QWidget):
         glay = QVBoxLayout(gauche)
         glay.setContentsMargins(0, 0, 8, 0)
         self.liste = QListWidget()
+        self.liste.setItemDelegate(ListeDeuxLignes(self.liste))
         self.liste.currentItemChanged.connect(self.charger_selection)
         glay.addWidget(self.liste, 1)
         glay.addWidget(ligne_boutons(
@@ -131,7 +134,7 @@ class SubjectsPage(QWidget):
 
         picker = QHBoxLayout()
         colg = QVBoxLayout()
-        lbl = QLabel("BANQUE  (⚠ déjà donnée à la classe, • au niveau)")
+        lbl = QLabel("BANQUE")
         lbl.setProperty("role", "section")
         colg.addWidget(lbl)
         self.filtre_niveau = QComboBox()
@@ -141,6 +144,7 @@ class SubjectsPage(QWidget):
         self.filtre_chap.currentIndexChanged.connect(self._recharger_banque)
         colg.addWidget(self.filtre_chap)
         self.banque = QListWidget()
+        self.banque.setItemDelegate(ListeDeuxLignes(self.banque))
         self.banque.setSelectionMode(QListWidget.ExtendedSelection)
         self.banque.setDragEnabled(True)
         colg.addWidget(self.banque, 1)
@@ -172,16 +176,21 @@ class SubjectsPage(QWidget):
         dlay.addWidget(self.etat)
         self.b_generer = bouton("Générer les copies", "primaire",
                                 self.generer)
-        self.b_copies = bouton("Ouvrir les copies",
-                               on_click=lambda: self._ouvrir("main.pdf"))
-        self.b_corrige = bouton("Ouvrir le corrigé",
-                                on_click=lambda: self._ouvrir("corrige.pdf"))
-        self.b_dossier = bouton("Ouvrir le dossier",
-                                on_click=lambda: self._ouvrir(""))
+        self.b_ouvrir = QToolButton()
+        self.b_ouvrir.setText("Ouvrir…")
+        self.b_ouvrir.setPopupMode(QToolButton.InstantPopup)
+        menu = QMenu(self.b_ouvrir)
+        self.a_copies = menu.addAction(
+            "Les copies (main.pdf)", lambda: self._ouvrir("main.pdf"))
+        self.a_corrige = menu.addAction(
+            "Le corrigé", lambda: self._ouvrir("corrige.pdf"))
+        menu.addSeparator()
+        self.a_dossier = menu.addAction(
+            "Le dossier du sujet", lambda: self._ouvrir(""))
+        self.b_ouvrir.setMenu(menu)
         dlay.addWidget(ligne_boutons(
             bouton("Enregistrer le sujet", on_click=self.enregistrer),
-            self.b_generer, self.b_copies, self.b_corrige,
-            self.b_dossier))
+            self.b_generer, self.b_ouvrir))
         split.addWidget(droite)
         split.setSizes([260, 720])
 
@@ -251,9 +260,11 @@ class SubjectsPage(QWidget):
         for s in self.con.execute(
                 "SELECT s.*, c.nom AS classe_nom FROM sujets s "
                 "JOIN classes c ON c.id = s.classe_id ORDER BY s.id DESC"):
-            it = QListWidgetItem(
-                f"{s['titre']}  —  {s['classe_nom']}  [{self._cycle(s)}]")
+            it = QListWidgetItem(s["titre"])
             it.setData(Qt.UserRole, s["id"])
+            meta = f"{s['classe_nom']} · {self._cycle(s)}"
+            it.setData(ROLE_META, meta)
+            it.setToolTip(f"{s['titre']}\n{meta}")
             self.liste.addItem(it)
             if s["id"] == sid:
                 self.liste.setCurrentItem(it)
@@ -341,28 +352,29 @@ class SubjectsPage(QWidget):
                                     self._niveau_valeur()):
             if q["id"] in deja:
                 continue
-            apercu = " ".join(q["enonce"].split())[:60]
-            tete = (f"[{q['niveau']} · {q['chapitre']}]" if q["niveau"]
-                    else f"[{q['chapitre']}]")
             u = usages.get(q["id"], [])
             u_classe = [x for x in u if x["classe_id"] == classe_id]
             u_niveau = [x for x in u
                         if niveau_classe and x["niveau"] == niveau_classe]
-            marque, tip = "", ""
+            badge, tip = "", ""
             if u_classe:
-                marque = "⚠ "
+                badge = "⚠ classe"
                 tip = "Déjà donnée à cette classe :\n" \
                     + self._detail_usages(u_classe)
             elif u_niveau:
-                marque = "• "
+                badge = "• niveau"
                 tip = f"Déjà donnée en {niveau_classe} :\n" \
                     + self._detail_usages(u_niveau)
             elif u:
+                badge = f"⬩{len(u)}"
                 tip = "Utilisée dans :\n" + self._detail_usages(u)
-            it = QListWidgetItem(f"{marque}{tete}  {apercu}")
+            it = QListWidgetItem(" ".join(q["enonce"].split())[:120])
             it.setData(Qt.UserRole, q["id"])
-            if tip:
-                it.setToolTip(tip)
+            meta = " · ".join(x for x in (q["niveau"], q["chapitre"]) if x)
+            it.setData(ROLE_META, meta or "non classée")
+            if badge:
+                it.setData(ROLE_BADGE, badge)
+            it.setToolTip(q["enonce"] + (f"\n\n{tip}" if tip else ""))
             self.banque.addItem(it)
 
     def _question_ids(self):
@@ -577,9 +589,10 @@ class SubjectsPage(QWidget):
             s = self.con.execute("SELECT etat FROM sujets WHERE id=?",
                                  (self.sujet_id,)).fetchone()
             genere = bool(s and s["etat"] == "genere")
-        self.b_copies.setEnabled(genere)
-        self.b_corrige.setEnabled(genere)
-        self.b_dossier.setEnabled(self.sujet_id is not None)
+        self.a_copies.setEnabled(genere)
+        self.a_corrige.setEnabled(genere)
+        self.a_dossier.setEnabled(self.sujet_id is not None)
+        self.b_ouvrir.setEnabled(self.sujet_id is not None)
 
     def _ouvrir(self, nom):
         if self.sujet_id is not None:

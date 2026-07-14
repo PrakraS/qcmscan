@@ -18,7 +18,8 @@ from PySide6.QtWidgets import (QApplication, QButtonGroup, QComboBox,
 from .. import db
 from ..latexgen import compiler_apercu
 from . import theme
-from .widgets import (Worker, bouton, confirmer, entete, erreur, info,
+from .widgets import (ROLE_BADGE, ROLE_META, ListeDeuxLignes, Worker,
+                      bouton, confirmer, entete, erreur, info,
                       ligne_boutons)
 
 
@@ -100,6 +101,7 @@ class QuestionsPage(QWidget):
         racine.addWidget(split, 1)
 
         self.liste = QListWidget()
+        self.liste.setItemDelegate(ListeDeuxLignes(self.liste))
         self.liste.currentItemChanged.connect(self.charger_selection)
         split.addWidget(self.liste)
 
@@ -145,8 +147,11 @@ class QuestionsPage(QWidget):
         scroll.setWidget(conteneur)
         scroll.setMinimumHeight(120)
         elay.addWidget(scroll, 2)
-        elay.addWidget(bouton("Ajouter une réponse",
-                              on_click=lambda: self.ajouter_reponse()))
+        lig_ajout = QHBoxLayout()
+        lig_ajout.addWidget(bouton("Ajouter une réponse",
+                                   on_click=lambda: self.ajouter_reponse()))
+        lig_ajout.addStretch()
+        elay.addLayout(lig_ajout)
 
         lbl = QLabel("APERÇU")
         lbl.setProperty("role", "section")
@@ -260,18 +265,19 @@ class QuestionsPage(QWidget):
         for q in db.liste_questions(self.con, chap,
                                     self.recherche.text().strip() or None,
                                     self._filtre_niveau_valeur()):
-            apercu = " ".join(q["enonce"].split())[:70]
-            tete = (f"[{q['niveau']} · {q['chapitre']}]" if q["niveau"]
-                    else f"[{q['chapitre']}]")
             usages = self._usages.get(q["id"], [])
-            badge = f"    ⬩{len(usages)}" if usages else ""
-            it = QListWidgetItem(f"{tete}  {apercu}{badge}")
+            it = QListWidgetItem(" ".join(q["enonce"].split())[:120])
             it.setData(Qt.UserRole, q["id"])
+            meta = " · ".join(x for x in (q["niveau"], q["chapitre"]) if x)
+            it.setData(ROLE_META, meta or "non classée")
+            tip = q["enonce"]
             if usages:
-                it.setToolTip("Utilisée dans :\n" + "\n".join(
+                it.setData(ROLE_BADGE, f"⬩{len(usages)}")
+                tip += "\n\nUtilisée dans :\n" + "\n".join(
                     f"– {u['titre']} — {u['classe']}"
                     + (f" ({u['niveau']})" if u["niveau"] else "")
-                    + f", {u['date_creation']}" for u in usages))
+                    + f", {u['date_creation']}" for u in usages)
+            it.setToolTip(tip)
             self.liste.addItem(it)
             if q["id"] == self.qid:
                 self.liste.setCurrentItem(it)

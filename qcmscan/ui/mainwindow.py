@@ -51,7 +51,7 @@ class MainWindow(QMainWindow):
         self.pages = QStackedWidget()
         conteneur = QWidget()
         plage = QVBoxLayout(conteneur)
-        plage.setContentsMargins(18, 14, 18, 10)
+        plage.setContentsMargins(22, 16, 22, 14)
         plage.addWidget(self.pages)
         lay.addWidget(conteneur, 1)
 
@@ -67,9 +67,6 @@ class MainWindow(QMainWindow):
         self.nav.setCurrentRow(0)
         self.setCentralWidget(central)
         self._maj_bouton_theme()
-        self.statusBar().showMessage(
-            "Les données sont enregistrées automatiquement dans votre "
-            "dossier utilisateur.")
 
     def _changer_page(self, row):
         ancien = self.pages.currentWidget()

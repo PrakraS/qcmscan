@@ -1,9 +1,68 @@
 """Éléments d'interface partagés."""
 
-from PySide6.QtCore import QThread, QUrl, Signal
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtCore import QSize, Qt, QThread, QUrl, Signal
+from PySide6.QtGui import QColor, QDesktopServices
 from PySide6.QtWidgets import (QHBoxLayout, QLabel, QMessageBox, QPushButton,
-                               QVBoxLayout, QWidget)
+                               QStyle, QStyledItemDelegate,
+                               QStyleOptionViewItem, QVBoxLayout, QWidget)
+
+from . import theme
+
+# Rôles de données pour les listes à deux lignes.
+ROLE_META = Qt.UserRole + 1     # ligne secondaire, grisée
+ROLE_BADGE = Qt.UserRole + 2    # marque courte alignée à droite
+
+
+class ListeDeuxLignes(QStyledItemDelegate):
+    """Élément de liste à deux lignes : texte principal, puis une ligne
+    de métadonnées en petit et gris ; badge facultatif à droite."""
+
+    MARGE_X, MARGE_Y = 10, 5
+
+    def sizeHint(self, option, index):
+        return QSize(220, 44)
+
+    def paint(self, painter, option, index):
+        opt = QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        opt.text = ""
+        style = opt.widget.style() if opt.widget else None
+        if style:
+            style.drawControl(QStyle.CE_ItemViewItem, opt, painter,
+                              opt.widget)
+        r = opt.rect.adjusted(self.MARGE_X, self.MARGE_Y,
+                              -self.MARGE_X, -self.MARGE_Y)
+        painter.save()
+
+        badge = index.data(ROLE_BADGE) or ""
+        largeur_badge = 0
+        if badge:
+            couleur = (theme.palette["orange"] if badge.startswith("⚠")
+                       else theme.palette["texte2"])
+            painter.setPen(QColor(couleur))
+            largeur_badge = painter.fontMetrics().horizontalAdvance(badge)
+            painter.drawText(r, Qt.AlignRight | Qt.AlignTop, badge)
+            largeur_badge += 10
+
+        principal = index.data(Qt.DisplayRole) or ""
+        fm = painter.fontMetrics()
+        painter.setPen(QColor(theme.palette["texte"]))
+        painter.drawText(
+            r, Qt.AlignLeft | Qt.AlignTop,
+            fm.elidedText(principal, Qt.ElideRight,
+                          r.width() - largeur_badge))
+
+        meta = index.data(ROLE_META) or ""
+        if meta:
+            f = painter.font()
+            f.setPointSizeF(max(f.pointSizeF() - 1.5, 6.5))
+            painter.setFont(f)
+            painter.setPen(QColor(theme.palette["texte2"]))
+            painter.drawText(
+                r, Qt.AlignLeft | Qt.AlignBottom,
+                painter.fontMetrics().elidedText(meta, Qt.ElideRight,
+                                                 r.width()))
+        painter.restore()
 
 
 class Worker(QThread):

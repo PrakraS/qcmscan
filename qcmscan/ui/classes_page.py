@@ -10,7 +10,8 @@ from PySide6.QtWidgets import (QApplication, QComboBox, QFileDialog,
                                QWidget)
 
 from .. import db
-from .widgets import bouton, confirmer, entete, erreur, info, ligne_boutons
+from .widgets import (ROLE_META, ListeDeuxLignes, bouton, confirmer,
+                      entete, erreur, info, ligne_boutons)
 
 
 class ClassesPage(QWidget):
@@ -30,6 +31,7 @@ class ClassesPage(QWidget):
         glay = QVBoxLayout(gauche)
         glay.setContentsMargins(0, 0, 8, 0)
         self.liste = QListWidget()
+        self.liste.setItemDelegate(ListeDeuxLignes(self.liste))
         self.liste.currentItemChanged.connect(self.charger_classe)
         glay.addWidget(self.liste, 1)
         glay.addWidget(ligne_boutons(
@@ -92,8 +94,9 @@ class ClassesPage(QWidget):
             n = self.con.execute(
                 "SELECT COUNT(*) n FROM eleves WHERE classe_id=?",
                 (c["id"],)).fetchone()["n"]
-            niv = f" — {c['niveau']}" if c["niveau"] else ""
-            it = QListWidgetItem(f"{c['nom']}{niv}   ({n} élèves)")
+            it = QListWidgetItem(c["nom"])
+            it.setData(ROLE_META, " · ".join(
+                x for x in (c["niveau"], f"{n} élèves") if x))
             it.setData(Qt.UserRole, c["id"])
             self.liste.addItem(it)
             if c["id"] == cid:
