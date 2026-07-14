@@ -1,5 +1,6 @@
 """Couche de persistance SQLite. Un seul fichier de base, schéma simple."""
 
+import re
 import sqlite3
 from pathlib import Path
 
@@ -231,6 +232,51 @@ def exporter_questions(con, chapitre=None, recherche=None):
                          for r in reponses_de(con, q["id"])],
         })
     return out
+
+
+def parser_questions_texte(texte, chapitre_defaut=""):
+    """Convertit le format texte « collable » en liste pour importer_questions.
+
+    Un bloc par question, blocs séparés par une ligne vide :
+
+        [Chapitre]                        (facultatif)
+        Énoncé, éventuellement sur
+        plusieurs lignes. LaTeX autorisé.
+        * bonne réponse
+        - autre réponse
+        - autre réponse
+
+    Une ligne de réponse qui ne tient pas sur une ligne peut continuer
+    sur la suivante (sans « - » ni « * » en tête).
+    """
+    questions = []
+    blocs = [b for b in re.split(r"\n\s*\n", texte.strip()) if b.strip()]
+    for i, bloc in enumerate(blocs, start=1):
+        lignes = bloc.strip().splitlines()
+        chapitre = chapitre_defaut
+        if lignes and re.fullmatch(r"\[.+\]", lignes[0].strip()):
+            chapitre = lignes[0].strip()[1:-1].strip()
+            lignes = lignes[1:]
+        enonce, reponses = [], []
+        for ligne in lignes:
+            m = re.match(r"^\s*([-*])\s+(.*)$", ligne)
+            if m:
+                reponses.append({"texte": m.group(2).strip(),
+                                 "correcte": m.group(1) == "*"})
+            elif reponses:
+                reponses[-1]["texte"] += " " + ligne.strip()
+            else:
+                enonce.append(ligne)
+        if not enonce or not reponses:
+            raise ValueError(
+                f"Bloc {i} : il faut un énoncé puis les réponses, "
+                "« * » ou « - » suivi d'une espace en début de ligne.")
+        questions.append({"chapitre": chapitre,
+                          "enonce": "\n".join(enonce).strip(),
+                          "reponses": reponses})
+    if not questions:
+        raise ValueError("Aucune question trouvée dans le texte.")
+    return questions
 
 
 def importer_questions(con, data):

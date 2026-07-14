@@ -47,6 +47,28 @@ l'application lit la clé `pdflatex` de la table `settings` de la base
    acceptés), lancer l'analyse, réviser les éventuelles cases douteuses,
    calculer, exporter.
 
+## Écrire des questions vite (IA, collègue…)
+
+Le bouton « Coller… » de la banque importe des questions au format texte,
+pratique pour récupérer ce qu'une IA rédige. Un bloc par question, une
+ligne vide entre les blocs, `[Chapitre]` facultatif en tête de bloc, `*`
+devant la bonne réponse, `-` devant les autres, LaTeX autorisé :
+
+```
+[Dérivation]
+Soit $f(x)=x^2+3x$. Que vaut $f'(x)$ ?
+* $2x+3$
+- $x^2$
+- $2x$
+- $3$
+```
+
+Consigne à donner à l'IA : « Rédige N questions de QCM sur <thème> à ce
+format exact, une seule bonne réponse marquée `*`, maths en LaTeX `$…$`. »
+
+Les boutons « Exporter… » / « Importer… » échangent la banque complète en
+JSON (partage entre collègues, sauvegarde).
+
 ## Exports
 
 - CSV des notes (`Nom;Prénom;Note;Barème;Note/20`, décimales à virgule) ;

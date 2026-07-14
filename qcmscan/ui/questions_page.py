@@ -1,16 +1,17 @@
 """Banque de questions : liste filtrable + éditeur avec aperçu LaTeX."""
 
 import json
+import re
 import tempfile
 from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
-from PySide6.QtWidgets import (QButtonGroup, QComboBox, QDialog, QFileDialog,
-                               QHBoxLayout, QLabel, QLineEdit, QListWidget,
-                               QListWidgetItem, QPlainTextEdit, QRadioButton,
-                               QScrollArea, QSplitter, QToolButton,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QApplication, QButtonGroup, QComboBox,
+                               QDialog, QFileDialog, QHBoxLayout, QLabel,
+                               QLineEdit, QListWidget, QListWidgetItem,
+                               QPlainTextEdit, QRadioButton, QScrollArea,
+                               QSplitter, QToolButton, QVBoxLayout, QWidget)
 
 from .. import db
 from ..latexgen import compiler_apercu
@@ -64,6 +65,7 @@ class QuestionsPage(QWidget):
         barre.addWidget(self.recherche, 1)
         barre.addWidget(bouton("Nouvelle question", "primaire",
                                self.nouvelle))
+        barre.addWidget(bouton("Coller…", on_click=self.coller))
         barre.addWidget(bouton("Exporter…", on_click=self.exporter))
         barre.addWidget(bouton("Importer…", on_click=self.importer))
         racine.addLayout(barre)
@@ -236,6 +238,53 @@ class QuestionsPage(QWidget):
         self.refresh()
 
     # ---------------------------------------------------- export / import
+    def coller(self):
+        """Import rapide de questions au format texte (copier-coller)."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Coller des questions")
+        lay = QVBoxLayout(dlg)
+        aide = QLabel(
+            "Un bloc par question, une ligne vide entre les blocs.\n"
+            "Première ligne « [Chapitre] » facultative, puis l'énoncé, puis "
+            "les réponses :\n« * » devant la bonne, « - » devant les autres. "
+            "LaTeX autorisé.")
+        aide.setObjectName("sousTitre")
+        lay.addWidget(aide)
+        zone = QPlainTextEdit()
+        zone.setPlaceholderText(
+            "[Dérivation]\n"
+            "Soit $f(x)=x^2+3x$. Que vaut $f'(x)$ ?\n"
+            "* $2x+3$\n"
+            "- $x^2$\n"
+            "- $2x$\n"
+            "- $3$")
+        zone.setMinimumSize(560, 320)
+        presse = QApplication.clipboard().text()
+        if re.search(r"^\s*[-*]\s+\S", presse, re.MULTILINE):
+            zone.setPlainText(presse)
+        lay.addWidget(zone, 1)
+
+        def valider():
+            chap = self.filtre_chap.currentText()
+            chap = "" if chap in ("", "Tous") else chap
+            try:
+                data = db.parser_questions_texte(zone.toPlainText(), chap)
+                ajoutees, ignorees = db.importer_questions(self.con, data)
+            except ValueError as e:
+                erreur(dlg, "Coller", str(e))
+                return
+            self.refresh()
+            msg = f"{ajoutees} question(s) ajoutée(s)."
+            if ignorees:
+                msg += f" {ignorees} doublon(s) ignoré(s)."
+            info(dlg, "Coller", msg)
+            dlg.accept()
+
+        lay.addWidget(ligne_boutons(
+            bouton("Ajouter à la banque", "primaire", valider),
+            bouton("Annuler", on_click=dlg.reject)))
+        dlg.exec()
+
     def exporter(self):
         """Exporte la banque telle que filtrée (chapitre + recherche)."""
         chap = self.filtre_chap.currentText()
