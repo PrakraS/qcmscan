@@ -151,20 +151,43 @@ def reponses_de(con, question_id):
 
 
 def sauver_question(con, qid, chapitre, enonce, reponses):
-    """reponses : liste de (texte, correcte). Retourne l'id."""
+    """reponses : liste de (texte, correcte). Retourne l'id.
+
+    Les réponses existantes sont modifiées en place quand leur nombre ne
+    change pas : les copies déjà générées référencent leurs ids
+    (copie_reponses, cases), qu'un DELETE violerait.
+    """
     if qid is None:
         cur = con.execute(
             "INSERT INTO questions(chapitre, enonce) VALUES(?,?)",
             (chapitre, enonce))
         qid = cur.lastrowid
+        anciennes = []
     else:
         con.execute("UPDATE questions SET chapitre=?, enonce=? WHERE id=?",
                     (chapitre, enonce, qid))
-        con.execute("DELETE FROM reponses WHERE question_id=?", (qid,))
-    for i, (texte, correcte) in enumerate(reponses):
-        con.execute(
-            "INSERT INTO reponses(question_id, texte, correcte, ordre) "
-            "VALUES(?,?,?,?)", (qid, texte, int(correcte), i))
+        anciennes = reponses_de(con, qid)
+    if len(anciennes) == len(reponses):
+        for old, (i, (texte, correcte)) in zip(anciennes,
+                                               enumerate(reponses)):
+            con.execute(
+                "UPDATE reponses SET texte=?, correcte=?, ordre=? WHERE id=?",
+                (texte, int(correcte), i, old["id"]))
+    else:
+        try:
+            con.execute("DELETE FROM reponses WHERE question_id=?", (qid,))
+            for i, (texte, correcte) in enumerate(reponses):
+                con.execute(
+                    "INSERT INTO reponses(question_id, texte, correcte,"
+                    " ordre) VALUES(?,?,?,?)", (qid, texte, int(correcte), i))
+        except sqlite3.IntegrityError:
+            con.rollback()
+            raise ValueError(
+                "Cette question figure sur des copies déjà générées : "
+                "impossible d'ajouter ou de retirer des réponses (les "
+                "copies imprimées y font référence). Vous pouvez modifier "
+                "les textes et déplacer la bonne réponse, ou créer une "
+                "nouvelle question.") from None
     con.commit()
     return qid
 

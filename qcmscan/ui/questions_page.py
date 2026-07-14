@@ -213,9 +213,13 @@ class QuestionsPage(QWidget):
         reponses = self.valider()
         if reponses is None:
             return
-        self.qid = db.sauver_question(
-            self.con, self.qid, self.chapitre.currentText().strip(),
-            self.enonce.toPlainText().strip(), reponses)
+        try:
+            self.qid = db.sauver_question(
+                self.con, self.qid, self.chapitre.currentText().strip(),
+                self.enonce.toPlainText().strip(), reponses)
+        except Exception as e:  # noqa: BLE001 — remonté à l'utilisateur
+            erreur(self, "Enregistrer", str(e))
+            return
         self.refresh()
 
     def supprimer(self):
