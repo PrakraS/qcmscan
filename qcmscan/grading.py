@@ -16,8 +16,8 @@ def cases_a_reviser(con, sujet_id):
     les cases noircies mais entourées (réponse annulée par l'élève)."""
     return con.execute(
         "SELECT m.case_id, m.ratio, m.ratio_ext, m.etat, m.crop,"
-        "       co.numero, e.nom, e.prenom,"
-        "       cq.ordre AS q_ordre, cr.ordre AS r_ordre "
+        "       co.numero, e.nom, e.prenom, ca.copie_id, ca.question_id,"
+        "       ca.page, cq.ordre AS q_ordre, cr.ordre AS r_ordre "
         "FROM mesures m "
         "JOIN cases ca ON ca.id = m.case_id "
         "JOIN copies co ON co.id = ca.copie_id "

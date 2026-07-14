@@ -4,14 +4,15 @@ import statistics
 from datetime import date
 from pathlib import Path
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QPainter, QPixmap
+from PySide6.QtCore import QRect, Qt
+from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QFileDialog,
                                QHBoxLayout, QLabel, QListWidget,
                                QRadioButton, QScrollArea, QTableWidget,
                                QTableWidgetItem, QTabWidget, QVBoxLayout,
                                QWidget)
 
+from .. import config as C
 from .. import db, exports, grading
 from ..omr import analyser_pdfs
 from ..paths import subject_dir
@@ -75,7 +76,7 @@ class DialogRevision(QDialog):
         self.con = con
         self.sujet_id = sujet_id
         self.setWindowTitle("Révision des cases signalées")
-        self.resize(460, 440)
+        self.resize(760, 520)
 
         lay = QVBoxLayout(self)
         self.contexte = QLabel("")
@@ -117,15 +118,82 @@ class DialogRevision(QDialog):
         self.contexte.setText(
             f"<b>{self.case['nom']} {self.case['prenom']}</b> "
             f"(copie {self.case['numero']}) — "
-            f"question {self.case['q_ordre'] + 1}, réponse {lettre}."
-            f"<br>{nature}<br>{reste} case(s) à vérifier.")
-        pm = QPixmap()
-        if self.case["crop"]:
-            pm.loadFromData(self.case["crop"])
+            f"question {self.case['q_ordre'] + 1}, réponse "
+            f"<b>{lettre}</b> (encadrée en rouge)."
+            f"<br>{nature}{self._autres_cases()}"
+            f"<br>{reste} case(s) à vérifier.")
+        pm = self._image_question()
+        if pm is None:
+            pm = QPixmap()
+            if self.case["crop"]:
+                pm.loadFromData(self.case["crop"])
         self.image.setPixmap(pm)
         self.ratio.setText(
             f"Noircissement intérieur : {self.case['ratio']:.0%} — "
             f"encre autour : {self.case['ratio_ext']:.0%}")
+
+    def _autres_cases(self):
+        """Avertit si d'autres cases de la même question sont noircies :
+        trancher « cochée » donnerait alors une réponse multiple."""
+        autres = self.con.execute(
+            "SELECT cr.ordre, m.ratio, m.etat, m.decision FROM cases ca "
+            "JOIN mesures m ON m.case_id = ca.id "
+            "JOIN copie_reponses cr ON cr.copie_id = ca.copie_id "
+            "  AND cr.question_id = ca.question_id "
+            "  AND cr.reponse_id = ca.reponse_id "
+            "WHERE ca.copie_id=? AND ca.question_id=? AND ca.id<>? "
+            "ORDER BY cr.ordre",
+            (self.case["copie_id"], self.case["question_id"],
+             self.case["case_id"])).fetchall()
+        noircies = [f"{chr(65 + a['ordre'])} ({a['ratio']:.0%})"
+                    for a in autres
+                    if (a["decision"] == "cochee"
+                        or (a["decision"] is None and a["etat"] == "cochee"))]
+        if not noircies:
+            return "<br>Aucune autre case de la question n'est noircie."
+        return ("<br>⚠ Autre(s) case(s) déjà noircie(s) sur cette "
+                "question : <b>" + ", ".join(noircies) + "</b> — "
+                "« Cochée » ici donnerait une réponse multiple.")
+
+    def _image_question(self):
+        """Découpe la question entière dans la page redressée et encadre
+        la case à trancher. None si la page n'est plus disponible."""
+        row = self.con.execute(
+            "SELECT image_path FROM pages_scannees WHERE copie_id=? "
+            "AND page=?", (self.case["copie_id"],
+                           self.case["page"])).fetchone()
+        if row is None or not Path(row["image_path"]).exists():
+            return None
+        cases = self.con.execute(
+            "SELECT * FROM cases WHERE copie_id=? AND question_id=? "
+            "AND page=?", (self.case["copie_id"], self.case["question_id"],
+                           self.case["page"])).fetchall()
+        if not cases:
+            return None
+        k = C.RECT_PX_PER_MM
+        y0 = min(c["y_mm"] for c in cases) - 6
+        y1 = max(c["y_mm"] + c["taille_mm"] for c in cases) + 5
+        x0 = min(c["x_mm"] for c in cases) - 6
+        x1 = C.PAGE_W_MM - 14
+        page = QPixmap(row["image_path"])
+        pm = page.copy(QRect(int(x0 * k), int(y0 * k),
+                             int((x1 - x0) * k), int((y1 - y0) * k)))
+        moi = next(c for c in cases if c["id"] == self.case["case_id"])
+        p = QPainter(pm)
+        p.setPen(QPen(QColor(theme.palette["rouge"]), 2))
+        m = 3
+        p.drawRect(int((moi["x_mm"] - x0) * k) - m,
+                   int((moi["y_mm"] - y0) * k) - m,
+                   int(moi["taille_mm"] * k) + 2 * m,
+                   int(moi["taille_mm"] * k) + 2 * m)
+        p.end()
+        largeur = max(self.width() - 60, 400)
+        if pm.width() > largeur:
+            pm = pm.scaledToWidth(largeur, Qt.SmoothTransformation)
+        elif pm.width() < largeur * 0.7:
+            pm = pm.scaledToWidth(int(largeur * 0.85),
+                                  Qt.SmoothTransformation)
+        return pm
 
     def trancher(self, decision):
         grading.trancher(self.con, self.case["case_id"], decision)
@@ -357,6 +425,10 @@ class CorrectionPage(QWidget):
                          if q["statut"] == "a_reviser")
             if nb_rev:
                 anomalies.append(f"{nb_rev} à réviser")
+            nb_mult = sum(1 for q in res["questions"]
+                          if q["statut"] == "multiple")
+            if nb_mult:
+                anomalies.append(f"{nb_mult} réponse(s) multiple(s)")
             detail = "  ".join(
                 f"{q['ordre']}:{self._sym(q)}" for q in res["questions"])
             vals = [res["eleve"],
@@ -373,7 +445,7 @@ class CorrectionPage(QWidget):
             vals = [str(s["num"]), s["chapitre"],
                     f"{s['reussite']:.0%}", str(s["faux"]),
                     str(s["blanc"]),
-                    " ".join(s["enonce"].split())[:80]]
+                    " ".join(s["enonce"].split())]
             for c, v in enumerate(vals):
                 it = QTableWidgetItem(v)
                 if c == 2:
@@ -381,6 +453,8 @@ class CorrectionPage(QWidget):
                     couleur = ("vert" if t >= 2 / 3
                                else "orange" if t >= 1 / 3 else "rouge")
                     it.setForeground(QColor(theme.palette[couleur]))
+                if c == 5:
+                    it.setToolTip(s["enonce"])
                 self.t_stats.setItem(r, c, it)
 
         notes20 = [res["note20"] for res in self.resultats]
