@@ -219,6 +219,63 @@ def supprimer_question(con, qid):
     con.commit()
 
 
+def exporter_questions(con, chapitre=None, recherche=None):
+    """Banque (filtrée) sous forme de liste de dicts sérialisables JSON."""
+    out = []
+    for q in liste_questions(con, chapitre, recherche):
+        out.append({
+            "chapitre": q["chapitre"],
+            "enonce": q["enonce"],
+            "reponses": [{"texte": r["texte"],
+                          "correcte": bool(r["correcte"])}
+                         for r in reponses_de(con, q["id"])],
+        })
+    return out
+
+
+def importer_questions(con, data):
+    """Importe une liste au format d'exporter_questions.
+
+    Les doublons exacts (même chapitre et même énoncé qu'une question
+    active) sont ignorés. Retourne (ajoutées, ignorées).
+    """
+    if not isinstance(data, list):
+        raise ValueError("Format inattendu : le fichier doit contenir "
+                         "une liste de questions.")
+    ajoutees = ignorees = 0
+    for i, q in enumerate(data, start=1):
+        try:
+            chapitre = str(q.get("chapitre", "")).strip()
+            enonce = str(q["enonce"]).strip()
+            reponses = [(str(r["texte"]), bool(r.get("correcte")))
+                        for r in q["reponses"]]
+        except (TypeError, KeyError):
+            raise ValueError(f"Question {i} : champs manquants "
+                             "(enonce, reponses[].texte attendus).") from None
+        if not enonce or len(reponses) < 2:
+            raise ValueError(f"Question {i} : énoncé vide ou moins de "
+                             "deux réponses.")
+        if sum(1 for _, c in reponses if c) != 1:
+            raise ValueError(f"Question {i} : il faut exactement une "
+                             "bonne réponse.")
+        existe = con.execute(
+            "SELECT 1 FROM questions WHERE actif=1 AND chapitre=? "
+            "AND enonce=? LIMIT 1", (chapitre, enonce)).fetchone()
+        if existe:
+            ignorees += 1
+            continue
+        cur = con.execute(
+            "INSERT INTO questions(chapitre, enonce) VALUES(?,?)",
+            (chapitre, enonce))
+        for j, (texte, correcte) in enumerate(reponses):
+            con.execute(
+                "INSERT INTO reponses(question_id, texte, correcte, ordre) "
+                "VALUES(?,?,?,?)", (cur.lastrowid, texte, int(correcte), j))
+        ajoutees += 1
+    con.commit()
+    return ajoutees, ignorees
+
+
 # ----------------------------------------------------------------- classes
 
 def liste_classes(con):

@@ -1,12 +1,13 @@
 """Banque de questions : liste filtrable + éditeur avec aperçu LaTeX."""
 
+import json
 import tempfile
 from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
-from PySide6.QtWidgets import (QButtonGroup, QComboBox, QDialog, QHBoxLayout,
-                               QLabel, QLineEdit, QListWidget,
+from PySide6.QtWidgets import (QButtonGroup, QComboBox, QDialog, QFileDialog,
+                               QHBoxLayout, QLabel, QLineEdit, QListWidget,
                                QListWidgetItem, QPlainTextEdit, QRadioButton,
                                QScrollArea, QSplitter, QToolButton,
                                QVBoxLayout, QWidget)
@@ -63,6 +64,8 @@ class QuestionsPage(QWidget):
         barre.addWidget(self.recherche, 1)
         barre.addWidget(bouton("Nouvelle question", "primaire",
                                self.nouvelle))
+        barre.addWidget(bouton("Exporter…", on_click=self.exporter))
+        barre.addWidget(bouton("Importer…", on_click=self.importer))
         racine.addLayout(barre)
 
         split = QSplitter()
@@ -231,6 +234,46 @@ class QuestionsPage(QWidget):
         db.supprimer_question(self.con, self.qid)
         self.nouvelle()
         self.refresh()
+
+    # ---------------------------------------------------- export / import
+    def exporter(self):
+        """Exporte la banque telle que filtrée (chapitre + recherche)."""
+        chap = self.filtre_chap.currentText()
+        chap = None if chap in ("", "Tous") else chap
+        data = db.exporter_questions(self.con, chap,
+                                     self.recherche.text().strip() or None)
+        if not data:
+            info(self, "Exporter", "Aucune question à exporter "
+                 "(avec le filtre actuel).")
+            return
+        nom = f"banque_{chap}.json" if chap else "banque_qcm.json"
+        chemin, _ = QFileDialog.getSaveFileName(
+            self, "Exporter la banque", nom, "JSON (*.json)")
+        if not chemin:
+            return
+        Path(chemin).write_text(
+            json.dumps(data, ensure_ascii=False, indent=2),
+            encoding="utf-8")
+        info(self, "Exporter",
+             f"{len(data)} question(s) exportée(s) vers\n{chemin}")
+
+    def importer(self):
+        chemin, _ = QFileDialog.getOpenFileName(
+            self, "Importer des questions", "", "JSON (*.json)")
+        if not chemin:
+            return
+        try:
+            data = json.loads(Path(chemin).read_text(encoding="utf-8"))
+            ajoutees, ignorees = db.importer_questions(self.con, data)
+        except (OSError, ValueError) as e:
+            erreur(self, "Importer", f"Import impossible : {e}")
+            return
+        self.refresh()
+        msg = f"{ajoutees} question(s) importée(s)."
+        if ignorees:
+            msg += f"\n{ignorees} doublon(s) ignoré(s) (même chapitre " \
+                   "et même énoncé qu'une question existante)."
+        info(self, "Importer", msg)
 
     # ------------------------------------------------------------ aperçu
     def apercu(self):
