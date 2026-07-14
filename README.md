@@ -97,6 +97,13 @@ réponses multiples retirent le malus choisi (un blanc reste à zéro) ; la
 note d'une copie ne descend jamais sous 0. La règle est rappelée dans la
 consigne imprimée en tête de chaque copie.
 
+Changement de réponse : l'élève **entoure la case fautive et noircit la
+bonne** (consigne imprimée). L'analyse mesure aussi l'encre *autour* de
+chaque case : quand plusieurs cases d'une question sont noircies, si une
+seule n'est pas entourée, c'est elle qui est retenue. Dans tous les
+autres cas (deux cases nettes, tout entouré…), la question reste
+« réponses multiples ».
+
 ## Données
 
 - Les copies et corrigés générés (`main.pdf`, `corrige.pdf`) sont écrits

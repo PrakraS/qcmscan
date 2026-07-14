@@ -79,7 +79,8 @@ def corriger_sujet(con, sujet_id, mode="auto"):
                    else sujet["points_defaut"])
             rows = con.execute(
                 "SELECT ca.id AS case_id, ca.reponse_id, r.correcte,"
-                "       cr.ordre AS r_ordre, m.ratio, m.etat, m.decision "
+                "       cr.ordre AS r_ordre, m.ratio, m.ratio_ext,"
+                "       m.etat, m.decision "
                 "FROM cases ca "
                 "JOIN reponses r ON r.id = ca.reponse_id "
                 "JOIN copie_reponses cr ON cr.copie_id = ca.copie_id "
@@ -99,6 +100,16 @@ def corriger_sujet(con, sujet_id, mode="auto"):
                     statut, cochees = "a_reviser", []
                 else:
                     cochees = [rid for rid, v in etats.items() if v]
+                    if len(cochees) > 1:
+                        # « Entourez la case fautive et noircissez la
+                        # bonne » : si exactement une des cases cochées
+                        # n'est pas entourée, c'est elle la réponse.
+                        ext = {r["reponse_id"]: (r["ratio_ext"] or 0.0)
+                               for r in rows}
+                        nettes = [rid for rid in cochees
+                                  if ext[rid] < C.SEUIL_ANNULEE]
+                        if len(nettes) == 1:
+                            cochees = nettes
                     if not cochees:
                         statut = "blanc"
                     elif len(cochees) > 1:

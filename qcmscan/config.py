@@ -49,6 +49,17 @@ SEUIL_VIDE = 0.08         # en dessous : case vide
 SEUIL_COCHEE = 0.30       # au-dessus : case cochée
 SEUIL_AUTO = 0.17         # coupure unique en mode automatique
 
+# Détection des cases annulées (« entourez la case fautive ») : anneau
+# mesuré autour de la case. Sert uniquement à départager les réponses
+# multiples : parmi les cases cochées, si une seule n'est pas entourée,
+# c'est elle la réponse retenue.
+ANNEAU_RETRAIT_MM = 0.5   # écart entre le bord de la case et l'anneau
+ANNEAU_LARGEUR_MM = 1.5   # largeur de l'anneau mesuré
+SEUIL_ANNULEE = 0.20      # noircissement d'anneau à partir duquel la
+                          # case est considérée comme entourée (mesuré :
+                          # cercle réel ≈ 0.4, débordement de feutre
+                          # d'une case noircie ≤ 0.12)
+
 # --------------------------------------------------------------- divers
 APP_NAME = "QCMScan"
 DB_FILENAME = "qcmscan.db"

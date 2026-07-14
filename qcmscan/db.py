@@ -97,6 +97,7 @@ CREATE TABLE IF NOT EXISTS cases (
 CREATE TABLE IF NOT EXISTS mesures (
     case_id INTEGER PRIMARY KEY REFERENCES cases(id) ON DELETE CASCADE,
     ratio REAL NOT NULL,
+    ratio_ext REAL NOT NULL DEFAULT 0,  -- encre autour (case entourée)
     etat TEXT NOT NULL,              -- vide | cochee | douteuse
     decision TEXT,                   -- vide | cochee (tranché manuellement)
     crop BLOB                        -- PNG de la case pour la révision
@@ -148,6 +149,11 @@ def _migrer(con):
                     "NOT NULL DEFAULT ''")
         con.execute("ALTER TABLE classes ADD COLUMN niveau TEXT "
                     "NOT NULL DEFAULT ''")
+        con.commit()
+    cols = {r[1] for r in con.execute("PRAGMA table_info(mesures)")}
+    if "ratio_ext" not in cols:
+        con.execute("ALTER TABLE mesures ADD COLUMN ratio_ext REAL "
+                    "NOT NULL DEFAULT 0")
         con.commit()
     if not con.execute("SELECT 1 FROM sqlite_master WHERE type='table' "
                        "AND name='niveaux'").fetchone():

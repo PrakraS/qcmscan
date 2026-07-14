@@ -126,8 +126,30 @@ def redresser(gray, marqueurs_ordonnes):
 
 # ------------------------------------------------------------------ mesure
 
+def _ratio_anneau(sombre, x0, y0, s, k):
+    """Taux d'encre dans l'anneau autour de la case (case entourée)."""
+    g = C.ANNEAU_RETRAIT_MM * k
+    w = C.ANNEAU_LARGEUR_MM * k
+    h_img, w_img = sombre.shape
+
+    def zone(ax, ay, bx, by):
+        ax, ay = max(int(round(ax)), 0), max(int(round(ay)), 0)
+        bx = min(int(round(bx)), w_img)
+        by = min(int(round(by)), h_img)
+        if bx <= ax or by <= ay:
+            return 0, 0
+        r = sombre[ay:by, ax:bx]
+        return int(r.sum()), r.size
+
+    s_ext, n_ext = zone(x0 - g - w, y0 - g - w, x0 + s + g + w,
+                        y0 + s + g + w)
+    s_int, n_int = zone(x0 - g, y0 - g, x0 + s + g, y0 + s + g)
+    aire = n_ext - n_int
+    return (s_ext - s_int) / aire if aire > 0 else 0.0
+
+
 def mesurer_cases(rect, cases_rows):
-    """Mesure chaque case : retourne {case_id: (ratio, crop_png_bytes)}."""
+    """Mesure chaque case : {case_id: (ratio, ratio_ext, crop_png_bytes)}."""
     th, _ = cv2.threshold(rect, 0, 255,
                           cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     sombre = rect < th
@@ -144,6 +166,7 @@ def mesurer_cases(rect, cases_rows):
         by = min(by, rect.shape[0] - 1)
         roi = sombre[ay:by, ax:bx]
         ratio = float(roi.mean()) if roi.size else 0.0
+        ratio_ext = _ratio_anneau(sombre, x0, y0, s, k)
 
         m = int(round(s * 0.55))
         cx0, cy0 = max(int(x0) - m, 0), max(int(y0) - m, 0)
@@ -153,7 +176,7 @@ def mesurer_cases(rect, cases_rows):
         crop = cv2.resize(crop, None, fx=3, fy=3,
                           interpolation=cv2.INTER_CUBIC)
         ok, png = cv2.imencode(".png", crop)
-        out[row["id"]] = (ratio, png.tobytes() if ok else None)
+        out[row["id"]] = (ratio, ratio_ext, png.tobytes() if ok else None)
     return out
 
 
@@ -221,12 +244,13 @@ def analyser_pdfs(con, sujet_id, pdf_paths, progress=None):
                 "SELECT * FROM cases WHERE copie_id=? AND page=?",
                 (copie_id, page)).fetchall()
             mesures = mesurer_cases(rect, cases_rows)
-            for case_id, (ratio, crop) in mesures.items():
+            for case_id, (ratio, ratio_ext, crop) in mesures.items():
                 con.execute(
                     "INSERT OR REPLACE INTO mesures"
-                    "(case_id, ratio, etat, decision, crop) "
-                    "VALUES(?,?,?,NULL,?)",
-                    (case_id, ratio, etat_depuis_ratio(ratio), crop))
+                    "(case_id, ratio, ratio_ext, etat, decision, crop) "
+                    "VALUES(?,?,?,?,NULL,?)",
+                    (case_id, ratio, ratio_ext,
+                     etat_depuis_ratio(ratio), crop))
             rapport["pages_ok"] += 1
             say(f"{ref} : copie {num}, page {page} analysée")
         con.commit()
