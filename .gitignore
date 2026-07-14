@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+# PDF générés (copies, corrigés) et scans de test : données, pas du code
+sujets/
+scan_test.pdf

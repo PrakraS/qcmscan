@@ -1,0 +1,231 @@
+"""Couche de persistance SQLite. Un seul fichier de base, schéma simple."""
+
+import sqlite3
+from pathlib import Path
+
+_SCHEMA = """
+PRAGMA foreign_keys = ON;
+
+CREATE TABLE IF NOT EXISTS questions (
+    id INTEGER PRIMARY KEY,
+    chapitre TEXT NOT NULL DEFAULT '',
+    enonce TEXT NOT NULL,
+    actif INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS reponses (
+    id INTEGER PRIMARY KEY,
+    question_id INTEGER NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+    texte TEXT NOT NULL,
+    correcte INTEGER NOT NULL DEFAULT 0,
+    ordre INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS classes (
+    id INTEGER PRIMARY KEY,
+    nom TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS eleves (
+    id INTEGER PRIMARY KEY,
+    classe_id INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+    nom TEXT NOT NULL,
+    prenom TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS sujets (
+    id INTEGER PRIMARY KEY,
+    titre TEXT NOT NULL,
+    classe_id INTEGER NOT NULL REFERENCES classes(id),
+    date_creation TEXT NOT NULL DEFAULT (date('now')),
+    points_defaut REAL NOT NULL DEFAULT 1.0,
+    coef_actifs INTEGER NOT NULL DEFAULT 0,
+    etat TEXT NOT NULL DEFAULT 'brouillon'   -- brouillon | genere
+);
+
+CREATE TABLE IF NOT EXISTS sujet_questions (
+    sujet_id INTEGER NOT NULL REFERENCES sujets(id) ON DELETE CASCADE,
+    question_id INTEGER NOT NULL REFERENCES questions(id),
+    ordre INTEGER NOT NULL,
+    points REAL NOT NULL DEFAULT 1.0,
+    PRIMARY KEY (sujet_id, question_id)
+);
+
+CREATE TABLE IF NOT EXISTS copies (
+    id INTEGER PRIMARY KEY,
+    sujet_id INTEGER NOT NULL REFERENCES sujets(id) ON DELETE CASCADE,
+    eleve_id INTEGER NOT NULL REFERENCES eleves(id) ON DELETE CASCADE,
+    numero INTEGER NOT NULL,
+    nb_pages INTEGER NOT NULL DEFAULT 0
+);
+
+-- Ordre des questions imprimé sur chaque copie.
+CREATE TABLE IF NOT EXISTS copie_questions (
+    copie_id INTEGER NOT NULL REFERENCES copies(id) ON DELETE CASCADE,
+    question_id INTEGER NOT NULL REFERENCES questions(id),
+    ordre INTEGER NOT NULL,
+    PRIMARY KEY (copie_id, question_id)
+);
+
+-- Ordre des réponses imprimé pour chaque question de chaque copie.
+CREATE TABLE IF NOT EXISTS copie_reponses (
+    copie_id INTEGER NOT NULL REFERENCES copies(id) ON DELETE CASCADE,
+    question_id INTEGER NOT NULL REFERENCES questions(id),
+    reponse_id INTEGER NOT NULL REFERENCES reponses(id),
+    ordre INTEGER NOT NULL,
+    PRIMARY KEY (copie_id, question_id, reponse_id)
+);
+
+-- Géométrie des cases (issue du .aux), coordonnées mm origine haut-gauche.
+CREATE TABLE IF NOT EXISTS cases (
+    id INTEGER PRIMARY KEY,
+    copie_id INTEGER NOT NULL REFERENCES copies(id) ON DELETE CASCADE,
+    question_id INTEGER NOT NULL REFERENCES questions(id),
+    reponse_id INTEGER NOT NULL REFERENCES reponses(id),
+    page INTEGER NOT NULL,           -- page locale de la copie (1..n)
+    x_mm REAL NOT NULL,
+    y_mm REAL NOT NULL,              -- bord supérieur de la case
+    taille_mm REAL NOT NULL
+);
+
+-- Résultat de mesure d'une case après analyse d'un scan.
+CREATE TABLE IF NOT EXISTS mesures (
+    case_id INTEGER PRIMARY KEY REFERENCES cases(id) ON DELETE CASCADE,
+    ratio REAL NOT NULL,
+    etat TEXT NOT NULL,              -- vide | cochee | douteuse
+    decision TEXT,                   -- vide | cochee (tranché manuellement)
+    crop BLOB                        -- PNG de la case pour la révision
+);
+
+CREATE TABLE IF NOT EXISTS pages_scannees (
+    copie_id INTEGER NOT NULL REFERENCES copies(id) ON DELETE CASCADE,
+    page INTEGER NOT NULL,
+    image_path TEXT NOT NULL,
+    PRIMARY KEY (copie_id, page)
+);
+
+CREATE TABLE IF NOT EXISTS settings (
+    cle TEXT PRIMARY KEY,
+    valeur TEXT NOT NULL
+);
+"""
+
+
+def connect(path: Path) -> sqlite3.Connection:
+    # check_same_thread=False : la connexion est partagée avec les threads
+    # de travail (génération, analyse) ; l'UI sérialise les accès en
+    # désactivant les actions pendant les traitements.
+    con = sqlite3.connect(str(path), check_same_thread=False)
+    con.row_factory = sqlite3.Row
+    con.execute("PRAGMA foreign_keys = ON")
+    con.executescript(_SCHEMA)
+    return con
+
+
+# --------------------------------------------------------------- questions
+
+def liste_chapitres(con):
+    rows = con.execute(
+        "SELECT DISTINCT chapitre FROM questions WHERE actif=1 "
+        "ORDER BY chapitre").fetchall()
+    return [r["chapitre"] for r in rows if r["chapitre"]]
+
+
+def liste_questions(con, chapitre=None, recherche=None):
+    q = "SELECT * FROM questions WHERE actif=1"
+    args = []
+    if chapitre:
+        q += " AND chapitre=?"
+        args.append(chapitre)
+    if recherche:
+        q += " AND enonce LIKE ?"
+        args.append(f"%{recherche}%")
+    q += " ORDER BY chapitre, id"
+    return con.execute(q, args).fetchall()
+
+
+def reponses_de(con, question_id):
+    return con.execute(
+        "SELECT * FROM reponses WHERE question_id=? ORDER BY ordre, id",
+        (question_id,)).fetchall()
+
+
+def sauver_question(con, qid, chapitre, enonce, reponses):
+    """reponses : liste de (texte, correcte). Retourne l'id."""
+    if qid is None:
+        cur = con.execute(
+            "INSERT INTO questions(chapitre, enonce) VALUES(?,?)",
+            (chapitre, enonce))
+        qid = cur.lastrowid
+    else:
+        con.execute("UPDATE questions SET chapitre=?, enonce=? WHERE id=?",
+                    (chapitre, enonce, qid))
+        con.execute("DELETE FROM reponses WHERE question_id=?", (qid,))
+    for i, (texte, correcte) in enumerate(reponses):
+        con.execute(
+            "INSERT INTO reponses(question_id, texte, correcte, ordre) "
+            "VALUES(?,?,?,?)", (qid, texte, int(correcte), i))
+    con.commit()
+    return qid
+
+
+def supprimer_question(con, qid):
+    """Suppression douce si la question est utilisée dans un sujet."""
+    utilisee = con.execute(
+        "SELECT 1 FROM sujet_questions WHERE question_id=? LIMIT 1",
+        (qid,)).fetchone()
+    if utilisee:
+        con.execute("UPDATE questions SET actif=0 WHERE id=?", (qid,))
+    else:
+        con.execute("DELETE FROM questions WHERE id=?", (qid,))
+    con.commit()
+
+
+# ----------------------------------------------------------------- classes
+
+def liste_classes(con):
+    return con.execute("SELECT * FROM classes ORDER BY nom").fetchall()
+
+
+def eleves_de(con, classe_id):
+    return con.execute(
+        "SELECT * FROM eleves WHERE classe_id=? ORDER BY nom, prenom",
+        (classe_id,)).fetchall()
+
+
+# ----------------------------------------------------------------- sujets
+
+def questions_du_sujet(con, sujet_id):
+    return con.execute(
+        "SELECT q.*, sq.points, sq.ordre AS sq_ordre FROM sujet_questions sq "
+        "JOIN questions q ON q.id = sq.question_id "
+        "WHERE sq.sujet_id=? ORDER BY sq.ordre", (sujet_id,)).fetchall()
+
+
+def copies_du_sujet(con, sujet_id):
+    return con.execute(
+        "SELECT c.*, e.nom, e.prenom FROM copies c "
+        "JOIN eleves e ON e.id = c.eleve_id "
+        "WHERE c.sujet_id=? ORDER BY c.numero", (sujet_id,)).fetchall()
+
+
+def purger_generation(con, sujet_id):
+    """Efface copies, géométrie et mesures avant une régénération."""
+    con.execute("DELETE FROM copies WHERE sujet_id=?", (sujet_id,))
+    con.commit()
+
+
+# ---------------------------------------------------------------- settings
+
+def get_setting(con, cle, defaut=None):
+    r = con.execute("SELECT valeur FROM settings WHERE cle=?",
+                    (cle,)).fetchone()
+    return r["valeur"] if r else defaut
+
+
+def set_setting(con, cle, valeur):
+    con.execute(
+        "INSERT INTO settings(cle, valeur) VALUES(?,?) "
+        "ON CONFLICT(cle) DO UPDATE SET valeur=excluded.valeur",
+        (cle, str(valeur)))
+    con.commit()
