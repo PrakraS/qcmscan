@@ -72,10 +72,19 @@ class MainWindow(QMainWindow):
             "dossier utilisateur.")
 
     def _changer_page(self, row):
+        ancien = self.pages.currentWidget()
+        if ancien is not None and hasattr(ancien, "quitter"):
+            ancien.quitter()             # enregistrement automatique
         self.pages.setCurrentIndex(row)
         page = self.pages.currentWidget()
         if hasattr(page, "refresh"):
             page.refresh()
+
+    def closeEvent(self, event):
+        page = self.pages.currentWidget()
+        if page is not None and hasattr(page, "quitter"):
+            page.quitter()
+        super().closeEvent(event)
 
     # -------------------------------------------------------------- thème
     def _basculer_theme(self):

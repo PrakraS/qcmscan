@@ -1,6 +1,6 @@
 """Sujets : composition des questions, barème, génération des copies."""
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox,
                                QHBoxLayout, QLabel, QLineEdit, QListWidget,
@@ -66,6 +66,7 @@ class SubjectsPage(QWidget):
         super().__init__()
         self.con = con
         self.sujet_id = None
+        self._chargement = False
 
         racine = QVBoxLayout(self)
         racine.addWidget(entete(
@@ -181,7 +182,61 @@ class SubjectsPage(QWidget):
         split.addWidget(droite)
         split.setSizes([260, 720])
 
+        # enregistrement automatique, différé après la dernière modification
+        self._autosave = QTimer(self)
+        self._autosave.setSingleShot(True)
+        self._autosave.setInterval(900)
+        self._autosave.timeout.connect(self.auto_enregistrer)
+        self.titre.textChanged.connect(self._modifie)
+        self.classe.currentIndexChanged.connect(self._modifie)
+        self.points.valueChanged.connect(self._modifie)
+        self.coefs.toggled.connect(self._modifie)
+        self.malus_actif.toggled.connect(self._modifie)
+        self.malus.valueChanged.connect(self._modifie)
+        self.table.itemChanged.connect(self._modifie)
+
         self.refresh()
+
+    # ------------------------------------------------ enregistrement auto
+    def _modifie(self, *_):
+        if not self._chargement:
+            self._autosave.start()
+
+    def auto_enregistrer(self):
+        """Enregistre sans rien demander ; s'abstient si le sujet est
+        incomplet, ou si un sujet déjà généré change de composition
+        (là, le bouton « Enregistrer le sujet » reste le geste explicite)."""
+        if self._chargement:
+            return
+        if not self.titre.text().strip() or self.classe.currentData() is None:
+            return
+        if self.sujet_id is not None:
+            s = self.con.execute(
+                "SELECT etat, classe_id FROM sujets WHERE id=?",
+                (self.sujet_id,)).fetchone()
+            if s and s["etat"] == "genere":
+                en_base = {r["question_id"] for r in self.con.execute(
+                    "SELECT question_id FROM sujet_questions "
+                    "WHERE sujet_id=?", (self.sujet_id,))}
+                if (set(self._question_ids()) != en_base
+                        or self.classe.currentData() != s["classe_id"]):
+                    self.etat.setText(
+                        "Sujet déjà généré : cliquez « Enregistrer le "
+                        "sujet » pour confirmer le changement de "
+                        "composition (les copies imprimées ne suivront "
+                        "pas).")
+                    return
+        nouveau = self.sujet_id is None
+        if self.enregistrer(silencieux=True) is None:
+            return
+        if nouveau:
+            self.refresh()
+        self.etat.setText("Modifications enregistrées.")
+
+    def quitter(self):
+        """Appelé au changement d'onglet et à la fermeture."""
+        self._autosave.stop()
+        self.auto_enregistrer()
 
     # ------------------------------------------------------------ listes
     def refresh(self):
@@ -308,7 +363,10 @@ class SubjectsPage(QWidget):
 
     # ------------------------------------------------------------ sujet
     def nouveau(self):
+        self._autosave.stop()
+        self.auto_enregistrer()          # modifications en attente
         self.sujet_id = None
+        self._chargement = True
         self.liste.clearSelection()
         self.titre.setText("")
         self.points.setValue(1.0)
@@ -316,6 +374,7 @@ class SubjectsPage(QWidget):
         self.malus_actif.setChecked(False)
         self.malus.setValue(0.5)
         self.table.setRowCount(0)
+        self._chargement = False
         self._recharger_banque()
         self._maj_boutons()
         self.titre.setFocus()
@@ -324,9 +383,12 @@ class SubjectsPage(QWidget):
         if item is None:
             return
         sid = item.data(Qt.UserRole)
+        self._autosave.stop()
+        self.auto_enregistrer()          # modifications en attente
         s = self.con.execute("SELECT * FROM sujets WHERE id=?",
                              (sid,)).fetchone()
         self.sujet_id = sid
+        self._chargement = True
         self.titre.setText(s["titre"])
         self.points.setValue(s["points_defaut"])
         self.coefs.setChecked(bool(s["coef_actifs"]))
@@ -338,6 +400,7 @@ class SubjectsPage(QWidget):
         for q in db.questions_du_sujet(self.con, sid):
             self._ligne_question(q["id"], q["chapitre"], q["enonce"],
                                  q["points"])
+        self._chargement = False
         self._recharger_banque()
         self._maj_boutons()
 
@@ -371,9 +434,12 @@ class SubjectsPage(QWidget):
         return out
 
     def _remplir_table(self, donnees):
+        self._chargement = True
         self.table.setRowCount(0)
         for qid, chap, enonce, pts in donnees:
             self._ligne_question(qid, chap, enonce, pts)
+        self._chargement = False
+        self._modifie()
 
     def deplacer_vers(self, lignes, cible):
         """Déplace les lignes sélectionnées avant la ligne `cible`."""
@@ -412,6 +478,7 @@ class SubjectsPage(QWidget):
         for r in lignes:
             self.table.removeRow(r)
         self._recharger_banque()
+        self._modifie()
 
     def deplacer(self, delta):
         r = self.table.currentRow()
@@ -491,6 +558,7 @@ class SubjectsPage(QWidget):
             ouvrir_fichier(subject_dir(self.sujet_id) / nom)
 
     def generer(self):
+        self._autosave.stop()
         sid = self.enregistrer(silencieux=True)
         if sid is None:
             return

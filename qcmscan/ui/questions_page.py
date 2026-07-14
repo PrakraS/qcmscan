@@ -175,6 +175,7 @@ class QuestionsPage(QWidget):
         self._apercu_cle = None
         self._apercu_encours = False
         self._apercu_refaire = False
+        self._etat_charge = None
 
         self.refresh()
 
@@ -272,6 +273,8 @@ class QuestionsPage(QWidget):
                     + (f" ({u['niveau']})" if u["niveau"] else "")
                     + f", {u['date_creation']}" for u in usages))
             self.liste.addItem(it)
+            if q["id"] == self.qid:
+                self.liste.setCurrentItem(it)
         self.liste.blockSignals(False)
 
     # ------------------------------------------------------------ niveaux
@@ -331,6 +334,9 @@ class QuestionsPage(QWidget):
         if item is None:
             return
         qid = item.data(Qt.UserRole)
+        if qid == self.qid:
+            return          # re-sélection après un rafraîchissement
+        self._sauver_si_modifiee()
         q = self.con.execute("SELECT * FROM questions WHERE id=?",
                              (qid,)).fetchone()
         self.qid = qid
@@ -340,6 +346,39 @@ class QuestionsPage(QWidget):
         self.vider_reponses()
         for r in db.reponses_de(self.con, qid):
             self.ajouter_reponse(r["texte"], bool(r["correcte"]))
+        self._etat_charge = self._instantane()
+
+    # ------------------------------------------------ enregistrement auto
+    def _instantane(self):
+        return (self.niveau.currentText().strip(),
+                self.chapitre.currentText().strip(),
+                self.enonce.toPlainText().strip(),
+                tuple(self.lignes_reponses()))
+
+    def _sauver_si_modifiee(self):
+        """Enregistre la question en cours d'édition si elle a changé et
+        qu'elle est valide ; appelé quand on la quitte (autre question,
+        autre onglet, fermeture). Une question invalide n'est pas sauvée,
+        sans message : on est en train de partir."""
+        actuel = self._instantane()
+        if actuel == self._etat_charge:
+            return
+        niveau, chapitre, enonce, reponses = actuel
+        if (not enonce or len(reponses) < 2
+                or sum(1 for _, c in reponses if c) != 1):
+            return
+        try:
+            self.qid = db.sauver_question(self.con, self.qid, chapitre,
+                                          enonce, list(reponses),
+                                          niveau=niveau)
+        except Exception:  # noqa: BLE001 — ex. nb de réponses verrouillé
+            return
+        self._etat_charge = self._instantane()
+        QTimer.singleShot(0, self.refresh)
+
+    def quitter(self):
+        """Appelé au changement d'onglet et à la fermeture."""
+        self._sauver_si_modifiee()
 
     # ----------------------------------------------------------- éditeur
     def vider_reponses(self):
@@ -368,6 +407,7 @@ class QuestionsPage(QWidget):
         return out
 
     def nouvelle(self):
+        self._sauver_si_modifiee()
         self.qid = None
         self.liste.clearSelection()
         if self._filtre_niveau_valeur():
@@ -376,6 +416,7 @@ class QuestionsPage(QWidget):
         self.vider_reponses()
         for _ in range(4):
             self.ajouter_reponse()
+        self._etat_charge = self._instantane()
         self.enonce.setFocus()
 
     def valider(self):
@@ -405,6 +446,7 @@ class QuestionsPage(QWidget):
         except Exception as e:  # noqa: BLE001 — remonté à l'utilisateur
             erreur(self, "Enregistrer", str(e))
             return
+        self._etat_charge = self._instantane()
         self.refresh()
 
     def supprimer(self):
@@ -413,6 +455,8 @@ class QuestionsPage(QWidget):
         if self.qid is None:
             return
         db.supprimer_question(self.con, self.qid)
+        self._etat_charge = self._instantane()   # ne pas re-sauver en quittant
+        self.qid = None
         self.nouvelle()
         self.refresh()
 
