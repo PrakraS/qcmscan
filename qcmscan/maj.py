@@ -1,11 +1,14 @@
-"""Vérification des mises à jour via les Releases GitHub.
+"""Vérification et installation des mises à jour via les Releases GitHub.
 
 Aucune donnée n'est envoyée : simple lecture publique de la dernière
 release. Silencieux en cas d'absence de réseau ou d'erreur.
 """
 
 import json
+import subprocess
+import sys
 import urllib.request
+from pathlib import Path
 
 from .version import DEPOT, __version__
 
@@ -37,3 +40,43 @@ def verifier(progress=None):
                 if a.get("name", "").endswith(".exe")),
                data.get("html_url", f"https://github.com/{DEPOT}/releases"))
     return distante.lstrip("v"), url
+
+
+def telecharger(url, destination, progress=None):
+    """Télécharge `url` vers `destination` avec progression affichable."""
+    req = urllib.request.Request(
+        url, headers={"User-Agent": f"QCMScan/{__version__}"})
+    with urllib.request.urlopen(req, timeout=30) as r, \
+            open(destination, "wb") as f:
+        total = int(r.headers.get("Content-Length") or 0)
+        lu = 0
+        while True:
+            bloc = r.read(1 << 16)
+            if not bloc:
+                break
+            f.write(bloc)
+            lu += len(bloc)
+            if progress and total:
+                progress("Téléchargement de la mise à jour… "
+                         f"{lu * 100 // total} %")
+    return destination
+
+
+def installer_et_relancer(setup: Path):
+    """Lance l'installation silencieuse puis la relance de l'application.
+
+    À appeler depuis l'application empaquetée, juste avant de quitter :
+    un processus détaché attend la fin de l'installation (qui remplace
+    nos fichiers une fois l'application fermée) puis redémarre l'exe.
+    """
+    exe = Path(sys.executable)
+    commande = (
+        f"Start-Process -FilePath '{setup}' -ArgumentList "
+        "'/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"
+        "'/FORCECLOSEAPPLICATIONS' -Wait; "
+        f"Start-Process -FilePath '{exe}'")
+    subprocess.Popen(
+        ["powershell", "-NoProfile", "-WindowStyle", "Hidden",
+         "-Command", commande],
+        creationflags=(subprocess.CREATE_NO_WINDOW
+                       | subprocess.DETACHED_PROCESS))

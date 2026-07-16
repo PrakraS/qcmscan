@@ -18,9 +18,9 @@ coin, notes exportables (CSV, Pronote, copies annotées). Tout fonctionne
    lancement si besoin, et MiKTeX installe ensuite tout seul les paquets
    manquants.
 
-Les mises à jour sont signalées en bas de la fenêtre : un clic télécharge
-le nouvel installateur, qui remplace l'application **sans toucher aux
-données**.
+Les mises à jour sont signalées en bas de la fenêtre : **un clic
+télécharge et installe la nouvelle version tout seul** — l'application
+redémarre à jour, sans toucher aux données.
 
 ## Le flux de travail
 
@@ -130,10 +130,3 @@ renseigner son chemin dans la clé `pdflatex` de la table `settings`).
 Tests : `python tests/test_pipeline.py` (synthétique) et
 `python tests/test_generation.py` (boucle réelle avec pdflatex).
 
-## Publier une version (mainteneur)
-
-1. Monter `__version__` dans `qcmscan/version.py`, committer ;
-2. `git tag v1.2.0 && git push && git push --tags` ;
-3. Le workflow GitHub Actions construit l'exécutable (PyInstaller), le
-   teste, fabrique l'installateur (Inno Setup) et publie la Release.
-   Les utilisateurs sont notifiés à leur prochain lancement.

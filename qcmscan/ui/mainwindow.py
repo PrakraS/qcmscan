@@ -1,6 +1,9 @@
 """Fenêtre principale : navigation latérale + pages empilées."""
 
+import sys
+import tempfile
 import webbrowser
+from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QApplication, QHBoxLayout, QLabel,
@@ -14,7 +17,7 @@ from .classes_page import ClassesPage
 from .correction_page import CorrectionPage
 from .questions_page import QuestionsPage
 from .subjects_page import SubjectsPage
-from .widgets import Worker
+from .widgets import Worker, confirmer, erreur
 
 
 class MainWindow(QMainWindow):
@@ -85,17 +88,50 @@ class MainWindow(QMainWindow):
     def _maj_disponible(self, resultat):
         if resultat is None:
             return
-        version, url = resultat
+        self._maj = resultat
+        version, _ = resultat
         self.b_version.setText(f"Version {version} disponible  ↗")
         self.b_version.setToolTip(
-            "Une nouvelle version est disponible : cliquer pour "
-            "télécharger l'installateur, puis l'exécuter. Vos données "
+            "Une nouvelle version est disponible : cliquer pour la "
+            "télécharger et l'installer automatiquement. Vos données "
             "sont conservées.")
         self.b_version.setCursor(Qt.PointingHandCursor)
         self.b_version.setProperty("maj", True)
         self.b_version.style().unpolish(self.b_version)
         self.b_version.style().polish(self.b_version)
-        self.b_version.clicked.connect(lambda: webbrowser.open(url))
+        self.b_version.clicked.connect(self._lancer_maj)
+
+    def _lancer_maj(self):
+        version, url = self._maj
+        if not getattr(sys, "frozen", False) or not url.endswith(".exe"):
+            webbrowser.open(url)         # depuis les sources : navigateur
+            return
+        if not confirmer(
+                self, "Mettre à jour",
+                f"Installer la version {version} maintenant ?\n"
+                "L'application se fermera puis redémarrera toute seule ; "
+                "vos données sont conservées."):
+            return
+        self.b_version.setEnabled(False)
+        destination = Path(tempfile.gettempdir(),
+                           f"QCMScan-Setup-{version}.exe")
+        self._dl = Worker(maj.telecharger, url, destination)
+        self._dl.progress.connect(self.b_version.setText)
+        self._dl.done.connect(self._maj_telechargee)
+        self._dl.error.connect(self._maj_echec)
+        self._dl.start()
+
+    def _maj_telechargee(self, setup):
+        maj.installer_et_relancer(Path(setup))
+        self.close()                     # auto-enregistrement puis sortie
+
+    def _maj_echec(self, msg):
+        self.b_version.setEnabled(True)
+        version, _ = self._maj
+        self.b_version.setText(f"Version {version} disponible  ↗")
+        erreur(self, "Mise à jour",
+               f"Téléchargement impossible : {msg}\n"
+               "Vous pouvez réessayer, ou passer par la page Releases.")
 
     def _changer_page(self, row):
         ancien = self.pages.currentWidget()
