@@ -120,6 +120,17 @@ QMainWindow, QDialog {{ background: {p['papier']}; }}
     color: {p['nav_texte_sel']};
     background: {p['nav_hover']};
 }}
+#versionInfo {{
+    color: {p['nav_texte']};
+    background: {p['nav_fond']};
+    border: none;
+    padding: 2px 16px 10px 16px;
+    font-size: 7.5pt;
+}}
+#versionInfo[maj="true"] {{
+    color: {p['nav_marque']};
+    font-weight: 600;
+}}
 
 /* ------------------------------------------------------------- titres */
 #titrePage {{

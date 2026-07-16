@@ -1,16 +1,20 @@
 """Fenêtre principale : navigation latérale + pages empilées."""
 
+import webbrowser
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QApplication, QHBoxLayout, QLabel,
                                QListWidget, QMainWindow, QStackedWidget,
                                QToolButton, QVBoxLayout, QWidget)
 
-from .. import db
+from .. import db, maj
+from ..version import __version__
 from . import theme
 from .classes_page import ClassesPage
 from .correction_page import CorrectionPage
 from .questions_page import QuestionsPage
 from .subjects_page import SubjectsPage
+from .widgets import Worker
 
 
 class MainWindow(QMainWindow):
@@ -46,6 +50,11 @@ class MainWindow(QMainWindow):
         self.b_theme.setCursor(Qt.PointingHandCursor)
         self.b_theme.clicked.connect(self._basculer_theme)
         clay.addWidget(self.b_theme)
+        self.b_version = QToolButton()
+        self.b_version.setObjectName("versionInfo")
+        self.b_version.setFixedWidth(210)
+        self.b_version.setText(f"version {__version__}")
+        clay.addWidget(self.b_version)
         lay.addWidget(cote)
 
         self.pages = QStackedWidget()
@@ -67,6 +76,26 @@ class MainWindow(QMainWindow):
         self.nav.setCurrentRow(0)
         self.setCentralWidget(central)
         self._maj_bouton_theme()
+
+        # vérification de mise à jour, en arrière-plan et sans bruit
+        self._maj_worker = Worker(lambda progress=None: maj.verifier())
+        self._maj_worker.done.connect(self._maj_disponible)
+        self._maj_worker.start()
+
+    def _maj_disponible(self, resultat):
+        if resultat is None:
+            return
+        version, url = resultat
+        self.b_version.setText(f"Version {version} disponible  ↗")
+        self.b_version.setToolTip(
+            "Une nouvelle version est disponible : cliquer pour "
+            "télécharger l'installateur, puis l'exécuter. Vos données "
+            "sont conservées.")
+        self.b_version.setCursor(Qt.PointingHandCursor)
+        self.b_version.setProperty("maj", True)
+        self.b_version.style().unpolish(self.b_version)
+        self.b_version.style().polish(self.b_version)
+        self.b_version.clicked.connect(lambda: webbrowser.open(url))
 
     def _changer_page(self, row):
         ancien = self.pages.currentWidget()

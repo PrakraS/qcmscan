@@ -1,0 +1,60 @@
+# Publication automatique : pousser un tag « vX.Y.Z » construit
+# l'application (PyInstaller), fabrique l'installateur (Inno Setup)
+# et publie la Release GitHub avec QCMScan-Setup.exe.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Dépendances
+        run: pip install -r requirements.txt pyinstaller
+
+      - name: Cohérence tag / version.py
+        shell: pwsh
+        run: |
+          $tag = "${env:GITHUB_REF_NAME}".TrimStart("v")
+          $ver = python -c "from qcmscan.version import __version__; print(__version__)"
+          if ($tag -ne $ver) {
+            throw "Le tag v$tag ne correspond pas à version.py ($ver) : montez __version__ avant de tagger."
+          }
+
+      - name: Construction (PyInstaller)
+        run: pyinstaller installateur/QCMScan.spec --noconfirm
+
+      - name: Test de fumée de l'exécutable
+        shell: pwsh
+        run: |
+          & dist\QCMScan\QCMScan.exe --autotest
+          Start-Sleep -Seconds 5
+          $marqueur = Join-Path $env:TEMP "qcmscan_autotest.txt"
+          if (-not (Test-Path $marqueur)) {
+            throw "L'exécutable empaqueté n'a pas démarré."
+          }
+          Get-Content $marqueur
+
+      - name: Installateur (Inno Setup)
+        shell: pwsh
+        run: |
+          $ver = "${env:GITHUB_REF_NAME}".TrimStart("v")
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
+            /DMyAppVersion=$ver installateur\qcmscan.iss
+
+      - name: Publication de la release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: installateur/Output/QCMScan-Setup.exe
+          generate_release_notes: true

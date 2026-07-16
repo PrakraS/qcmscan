@@ -4,3 +4,7 @@ __pycache__/
 sujets/
 scan_*.pdf
 apercus_theme/
+# artefacts de construction
+build/
+dist/
+installateur/Output/

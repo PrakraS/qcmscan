@@ -104,13 +104,36 @@ seule n'est pas entourée, c'est elle qui est retenue. Dans tous les
 autres cas (deux cases nettes, tout entouré…), la question reste
 « réponses multiples ».
 
+## Installation (utilisateurs)
+
+1. Télécharger `QCMScan-Setup.exe` depuis la page
+   [Releases](https://github.com/PrakraS/qcmscan/releases) et
+   l'exécuter (aucun droit administrateur requis). Si Windows affiche
+   « Windows a protégé votre ordinateur », cliquer *Informations
+   complémentaires* puis *Exécuter quand même*.
+2. Installer [MiKTeX](https://miktex.org/download) (gratuit) : QCMScan
+   fabrique les copies avec LaTeX. L'application le rappelle au premier
+   lancement si besoin.
+
+Les mises à jour sont signalées en bas de la fenêtre : un clic
+télécharge le nouvel installateur, qui remplace l'application sans
+toucher aux données.
+
+## Publier une version (mainteneur)
+
+1. Monter `__version__` dans `qcmscan/version.py`, committer ;
+2. `git tag v1.2.0 && git push && git push --tags` ;
+3. Le workflow GitHub Actions construit l'exécutable (PyInstaller), le
+   teste, fabrique l'installateur (Inno Setup) et publie la Release.
+   Les utilisateurs sont notifiés à leur prochain lancement.
+
 ## Données
 
-- Chaque sujet a son dossier parlant dans `sujets\` **à côté de
-  l'application** : `sujets\0003 - Suites - 1G3\` contient `main.pdf`,
-  `corrige.pdf` et un sous-dossier `exports\` où partent automatiquement
-  les exports datés (notes, Pronote, copies annotées, statistiques).
-  Bouton « Ouvrir le dossier » dans l'onglet Sujets.
+- Chaque sujet a son dossier parlant dans **`Documents\QCMScan\sujets\`**
+  (stable à travers les mises à jour) : `0003 - Suites - 1G3\` contient
+  `main.pdf`, `corrige.pdf` et un sous-dossier `exports\` où partent
+  automatiquement les exports datés (notes, Pronote, copies annotées,
+  statistiques). Bouton « Ouvrir le dossier » dans l'onglet Sujets.
 - La liste des sujets affiche le cycle de vie : brouillon → généré le …
   → scanné le … → corrigé (avec la moyenne). Les notes calculées sont
   archivées en base : l'onglet Correction les réaffiche à l'ouverture.

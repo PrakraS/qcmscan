@@ -24,9 +24,46 @@ def app_dir() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
+def _documents() -> Path:
+    """Dossier Documents réel de l'utilisateur (suit les redirections
+    OneDrive), avec repli sur ~/Documents."""
+    if os.name == "nt":
+        try:
+            import ctypes
+            import ctypes.wintypes
+            CSIDL_PERSONAL = 5
+            buf = ctypes.create_unicode_buffer(ctypes.wintypes.MAX_PATH)
+            ctypes.windll.shell32.SHGetFolderPathW(
+                None, CSIDL_PERSONAL, None, 0, buf)
+            if buf.value:
+                return Path(buf.value)
+        except OSError:
+            pass
+    return Path.home() / "Documents"
+
+
 def sujets_root() -> Path:
-    """Les PDF générés vont à côté de l'application, faciles à retrouver."""
-    return app_dir() / "sujets"
+    """Les PDF générés vont dans Documents\\QCMScan : visibles, et ils
+    survivent aux mises à jour de l'application (contrairement au
+    dossier d'installation). Migre l'ancien emplacement au passage."""
+    racine = _documents() / "QCMScan" / "sujets"
+    ancien = app_dir() / "sujets"
+    # sur un poste de développement, l'application peut vivre dans
+    # Documents\qcmscan : même dossier que la cible (casse ignorée)
+    memes = os.path.normcase(str(ancien)) == os.path.normcase(str(racine))
+    if ancien.exists() and not memes:
+        racine.mkdir(parents=True, exist_ok=True)
+        for d in list(ancien.iterdir()):
+            if d.is_dir() and not (racine / d.name).exists():
+                try:
+                    d.rename(racine / d.name)
+                except OSError:
+                    pass                 # fichier ouvert : on réessaiera
+        try:
+            ancien.rmdir()               # seulement s'il est vide
+        except OSError:
+            pass
+    return racine
 
 
 def _slug(texte: str) -> str:
